@@ -1,3 +1,6 @@
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/feae14e9-8d68-41f9-9e33-e444f1a6f360" />
+
+
 # Canvas UI Framework
 
 A high-performance, cross-platform UI framework that renders native-like interfaces directly onto HTML5 Canvas elements. Built for data-intensive applications, drawing tools, and high-performance dashboards.
