@@ -1,110 +1,235 @@
 <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/feae14e9-8d68-41f9-9e33-e444f1a6f360" />
 
 
-# Canvas UI Framework
+# Canvas UI Engine (working name)
 
-A high-performance, cross-platform UI framework that renders native-like interfaces directly onto HTML5 Canvas elements. Built for data-intensive applications, drawing tools, and high-performance dashboards.
+> **Canvas-based UI Engine for Mobile & Embedded Apps**  
+> A high-performance UI engine rendered with Canvas/WebGL, running inside a WebView runtime (Capacitor / Cordova), without DOM, HTML or CSS.
 
-## 🚀 Features
+---
 
-### **🎯 Core Features**
-- **Dual Rendering Engine**: Automatic switching between WebGL (performance) and Canvas 2D (compatibility)
-- **60 FPS Animations**: Smooth animations with optimized rendering pipeline
-- **Complete Routing System**: Client-side routing with animated transitions
-- **Platform Detection**: Automatic Material Design (Android) and Cupertino (iOS) styling
-- **Touch & Mouse Support**: Full gesture recognition and event handling
+## 🚀 Overview
 
-### **📦 Component Library**
-- **50+ Ready-to-use Components**: From basic buttons to complex data tables
-- **Material & Cupertino Design**: Platform-specific components
-- **Composable Architecture**: Nest components with proper event bubbling
-- **Virtual DOM-like Updates**: Minimal re-renders with dirty-checking
+**Canvas UI Engine** is a **low-level UI engine** that renders the entire user interface using **Canvas 2D or WebGL**, instead of the DOM.
 
-### **⚡ Performance Optimizations**
-- **Batched Rendering**: Groups draw calls for maximum performance
-- **Selective Re-rendering**: Only updates changed components
-- **Texture Caching**: Caches text and images for fast rendering
-- **Memory Management**: Automatic cleanup and garbage collection
+Although it runs inside a WebView, it **does not rely on HTML, CSS, or the browser layout engine**.  
+The WebView is used **only as a JavaScript runtime**, not as a UI system.
 
-### **🔧 Developer Experience**
-- **TypeScript Support**: Full type definitions available
-- **Hot Reload**: Development server with live updates
-- **DevTools Extension**: Component inspector and performance profiler
-- **Comprehensive Documentation**: API references, tutorials, and examples
+> Think **Flutter’s rendering model**, but implemented in **JavaScript**, running inside a WebView.
 
-## 📋 Components Available
+---
 
-### **Basic Components**
-- `Button` - Interactive buttons with multiple variants
-- `Input` - Text input fields with validation
-- `Text` - Text rendering with multiple fonts
-- `View` - Basic container component
-- `Card` - Material Design cards with shadows
-- `FAB` - Floating Action Button
+## ❌ What this engine is NOT
 
-### **Form Components**
-- `Slider` - Range sliders with custom styling
-- `Checkbox` - Checkbox inputs
-- `RadioButton` - Radio button groups
-- `Switch` - Toggle switches
-- `Select` / `SelectDialog` - Dropdown selectors
-- `DatePicker` - Date selection with platform-specific pickers
-- `NumberInput` - Numeric input with controls
-- `TextField` - Advanced text fields
-- `FileUpload` - File upload components
+- ❌ Not a web framework  
+- ❌ Not DOM-based  
+- ❌ Not Ionic / React / Vue  
+- ❌ Not HTML/CSS driven  
+- ❌ Not designed for SEO or websites  
 
-### **Navigation Components**
-- `AppBar` - Application toolbar
-- `BottomNavigationBar` - Bottom tab navigation
-- `Drawer` - Side navigation drawer
-- `Tabs` - Tabbed interface
-- `Stepper` - Multi-step forms
-- `BottomSheet` - Bottom sheet modals
+---
 
-### **Modal Components**
-- `Dialog` - Alert and confirmation dialogs
-- `Modal` - Full-screen modals
-- `ContextMenu` - Context-aware menus
-- `Toast` / `Snackbar` - Temporary notifications
+## ✅ What this engine IS
 
-### **Data Display**
-- `List` / `ListItem` - Scrollable lists
-- `Table` - Data tables with sorting
-- `TreeView` - Hierarchical data display
-- `Accordion` - Expandable sections
-- `ProgressBar` / `CircularProgress` - Progress indicators
+- ✅ A **Canvas-first UI engine**
+- ✅ A **custom rendering pipeline**
+- ✅ A **custom layout system**
+- ✅ A **custom input & gesture system**
+- ✅ A **deterministic, app-like UI**
+- ✅ Designed for **mobile & embedded apps**
 
-### **Media Components**
-- `ImageComponent` - Image display with caching
-- `Video` - Video player component
-- `Avatar` - User avatar images
+---
 
-### **Layout Components**
-- `Divider` - Visual separators
-- `Chip` - Compact elements for tags
-- `SearchInput` - Search bars with filters
+## 🧠 Architecture
 
-### **Specialized Components**
-- `SignaturePad` - Digital signature capture
-- `PullToRefresh` - Refresh gesture support
-- `Skeleton` - Loading placeholders
+┌──────────────────────────┐
+│ Application              │
+│ (Views, Components)      │
+└───────────▲──────────────┘
+│
+┌───────────┴──────────────┐
+│ UI Engine                │
+│ Layout • Input • State   │
+│ Animation • Routing      │
+└───────────▲──────────────┘
+│
+┌───────────┴──────────────┐
+│ Canvas / WebGL Renderer  │
+└───────────▲──────────────┘
+│
+┌───────────┴──────────────┐
+│ WebView Runtime          │ 
+│ (Capacitor / Cordova)    │
+└──────────────────────────┘
 
-## 🛠️ Utilities
+yaml
+Copier le code
 
-### **State Management**
-- `StateManager` - Centralized state management
-- `DataStore` - Local data storage
-- `EventBus` - Event-driven communication
-- `FormValidator` - Form validation utilities
+### Key point
 
-### **Storage**
-- `SecureStorage` - Encrypted local storage
-- `IndexedDBManager` - IndexedDB wrapper
-- `QueryBuilder` - Database query builder
+> **The browser does not manage UI.  
+> The engine does.**
 
-### **Internationalization**
-- `I18n` - Multi-language support
-- `SafeArea` - Device-safe area handling
+---
 
-### **Offline Support**
-- `OfflineSyncManager` - Offline data synchronization
+## 🎨 Rendering
+
+- Canvas 2D (CPU)
+- Optional WebGL backend (GPU accelerated)
+- Device Pixel Ratio aware
+- Dirty-region rendering
+- Scene graph based
+
+Rendering performance depends **entirely on the engine**, not on the browser DOM.
+
+---
+
+## 🧩 UI Model
+
+- Every component is **drawn**, not mounted
+- No HTML nodes
+- No CSS
+- No reflow
+- No repaint cost from the browser
+
+Example components:
+- Button
+- Text
+- Input
+- Slider
+- Switch
+- List / Card
+- Modal / Dialog / BottomSheet
+- Navigation & routing system
+
+---
+
+## 🧭 Navigation
+
+- Internal routing system
+- Stack-based navigation
+- Animated transitions (slide / fade)
+- Independent from browser routing logic
+
+---
+
+## 🧵 Multithreading
+
+- **UI Worker** → layout & scroll inertia
+- **Logic Worker** → business logic
+- Main thread → rendering only
+
+This allows smoother UI and better separation of concerns.
+
+---
+
+## 🔌 Native capabilities
+
+Native features are accessed via the **host runtime** (Capacitor / Cordova):
+
+- Camera
+- Filesystem
+- Secure storage
+- Geolocation
+- WebSocket
+- Network
+
+⚠️ Plugins that **require DOM access are not supported**.
+
+---
+
+## 📦 Data & Networking
+
+The engine provides its own service layer:
+- Cached fetch service
+- WebSocket manager
+- Geolocation abstraction
+- Offline-first data handling
+
+All APIs are **engine-controlled**, not browser-controlled.
+
+---
+
+## 🆚 Comparison
+
+### vs React Native
+
+| React Native | Canvas UI Engine |
+|-------------|-----------------|
+| Native views | Custom rendering |
+| Bridge overhead | Direct rendering |
+| Platform UI | Engine UI |
+| DOM-like model | Scene graph |
+
+---
+
+### vs Flutter
+
+| Flutter | Canvas UI Engine |
+|--------|------------------|
+| Native engine | WebView runtime |
+| Skia | Canvas / WebGL |
+| Dart | JavaScript |
+| Compiled | Interpreted |
+| UI engine | UI engine |
+
+👉 **Same architecture philosophy**, different runtime constraints.
+
+---
+
+## ⚠️ Known limitations
+
+- No DOM access
+- No HTML rendering
+- No SEO
+- No accessibility (yet)
+- Text shaping is basic (LTR focused)
+
+These are **intentional design decisions**.
+
+---
+
+## 🎯 Target use cases
+
+- Mobile applications
+- Embedded systems
+- Kiosk interfaces
+- Medical / industrial apps
+- Offline-first apps
+- UI where **control > compatibility**
+
+---
+
+## 🛣️ Roadmap (simplified)
+
+### Phase 1 – Core engine (current)
+- Canvas/WebGL rendering
+- Input & layout
+- Core components
+
+### Phase 2 – Performance & UX
+- Gesture system
+- Animation engine
+- Advanced scrolling
+- Asset caching
+
+### Phase 3 – Ecosystem
+- Plugin bridge
+- Devtools
+- Theming system
+
+---
+
+## 🧪 Philosophy
+
+> **The WebView is just a runtime.  
+> The UI is owned by the engine.**
+
+If the engine is fast → the app is fast.  
+If the engine is slow → nothing can save it.
+
+---
+
+## 📄 License
+
+MIT
