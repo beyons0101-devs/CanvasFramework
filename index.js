@@ -60,6 +60,9 @@ export { default as EventBus } from './utils/EventBus.js';
 export { default as IndexedDBManager } from './utils/IndexedDBManager.js';
 export { default as QueryBuilder } from './utils/QueryBuilder.js';
 export { default as OfflineSyncManager } from './utils/OfflineSyncManager.js';
+export { default as FetchClient } from './utils/FetchClient.js';
+export { default as GeoLocationService } from './utils/GeoLocationService.js';
+export { default as WebSocketClient } from './utils/WebSocketClient.js';
 
 // Features
 export { default as PullToRefresh } from './features/PullToRefresh.js';
@@ -67,4 +70,5 @@ export { default as Skeleton } from './features/Skeleton.js';
 export { default as SignaturePad } from './features/SignaturePad.js';
 
 // Version du framework
+
 export const VERSION = '1.0.2';
