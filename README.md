@@ -42,19 +42,68 @@ The WebView is used **only as a JavaScript runtime**, not as a UI system.
 
 ## 🧠 Architecture
 
-## 🧠 Architecture
+<svg width="100%" viewBox="0 0 800 520" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .box { fill:#ffffff; stroke-width:2; rx:14; }
+    .app { stroke:#2196f3; fill:#e3f2fd; }
+    .engine { stroke:#4caf50; fill:#e8f5e9; }
+    .renderer { stroke:#ff9800; fill:#fff3e0; }
+    .runtime { stroke:#e91e63; fill:#fce4ec; }
+    .text { font-family: Arial, sans-serif; font-size:16px; fill:#222; }
+    .arrow { stroke:#444; stroke-width:2; marker-end:url(#arrow); }
+  </style>
 
-```mermaid
-flowchart TB
-    A[Application Layer<br/>Views · Components · State] --> B
-    B[UI Engine<br/>Layout · Input · Animation · Routing] --> C
-    C[Renderer<br/>Canvas 2D / WebGL] --> D
-    D[WebView Runtime<br/>Capacitor · Cordova]
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3"
+            orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#444"/>
+    </marker>
+  </defs>
 
-    style A fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    style B fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
-    style C fill:#fff3e0,stroke:#ff9800,stroke-width:2px
-    style D fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+  <!-- Boxes -->
+  <rect x="200" y="20" width="400" height="80" class="box app"/>
+  <rect x="200" y="130" width="400" height="90" class="box engine"/>
+  <rect x="200" y="260" width="400" height="80" class="box renderer"/>
+  <rect x="200" y="370" width="400" height="90" class="box runtime"/>
+
+  <!-- Text -->
+  <text x="400" y="55" text-anchor="middle" class="text">
+    Application Layer
+  </text>
+  <text x="400" y="80" text-anchor="middle" class="text" font-size="14">
+    Views · Components · State
+  </text>
+
+  <text x="400" y="165" text-anchor="middle" class="text">
+    UI Engine
+  </text>
+  <text x="400" y="190" text-anchor="middle" class="text" font-size="14">
+    Layout · Input · Animation · Routing
+  </text>
+
+  <text x="400" y="305" text-anchor="middle" class="text">
+    Renderer
+  </text>
+  <text x="400" y="330" text-anchor="middle" class="text" font-size="14">
+    Canvas 2D / WebGL
+  </text>
+
+  <text x="400" y="405" text-anchor="middle" class="text">
+    WebView Runtime
+  </text>
+  <text x="400" y="430" text-anchor="middle" class="text" font-size="14">
+    Capacitor · Cordova
+  </text>
+
+  <!-- Arrows -->
+  <line x1="400" y1="100" x2="400" y2="130" class="arrow"/>
+  <line x1="400" y1="220" x2="400" y2="260" class="arrow"/>
+  <line x1="400" y1="340" x2="400" y2="370" class="arrow"/>
+</svg>
+
+> **The WebView is only a runtime shell.**  
+> **The UI is fully controlled by the engine (no DOM, no HTML layout).**
+
 
 ### Key point
 
