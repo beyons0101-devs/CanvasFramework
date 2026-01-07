@@ -61,6 +61,7 @@ import WebSocketClient from '../utils/WebSocketClient.js';
 import PullToRefresh from '../features/PullToRefresh.js';
 import Skeleton from '../features/Skeleton.js';
 import SignaturePad from '../features/SignaturePad.js';
+import OpenStreetMap from '../features/OpenStreetMap.js';
 
 import WebGLCanvasAdapter from './WebGLCanvasAdapter.js';
 
@@ -718,6 +719,7 @@ class CanvasFramework {
              comp instanceof Modal ||
              comp instanceof BottomSheet ||
              comp instanceof ContextMenu ||
+			 comp instanceof OpenStreetMap ||
              comp instanceof SelectDialog;
     };
     
@@ -951,6 +953,7 @@ class CanvasFramework {
            comp instanceof Modal ||
            comp instanceof BottomSheet ||
            comp instanceof ContextMenu ||
+		   comp instanceof OpenStreetMap ||
            comp instanceof SelectDialog;
   }
   
