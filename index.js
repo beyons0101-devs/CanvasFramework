@@ -71,6 +71,14 @@ export { default as Skeleton } from './features/Skeleton.js';
 export { default as SignaturePad } from './features/SignaturePad.js';
 export { default as OpenStreetMap } from './features/OpenStreetMap.js';
 
+// Manager
+export { default as ErrorHandler } from './manager/ErrorHandler.js';
+export { default as PerformanceMonitor } from './manager/PerformanceMonitor.js';
+export { default as AccessibilityManager } from './manager/AccessibilityManager.js';
+export { default as MemoryManager } from './manager/MemoryManager.js';
+export { default as SecurityManager } from './manager/SecurityManager.js';
+export { default as FeatureFlags } from './manager/FeatureFlags.js';
+
 // Version du framework
 
 export const VERSION = '0.3.4';
