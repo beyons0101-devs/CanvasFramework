@@ -63,6 +63,7 @@ export { default as OfflineSyncManager } from './utils/OfflineSyncManager.js';
 export { default as FetchClient } from './utils/FetchClient.js';
 export { default as GeoLocationService } from './utils/GeoLocationService.js';
 export { default as WebSocketClient } from './utils/WebSocketClient.js';
+export { default as AnimationEngine } from './utils/AnimationEngine.js';
 
 // Features
 export { default as PullToRefresh } from './features/PullToRefresh.js';
@@ -72,4 +73,4 @@ export { default as OpenStreetMap } from './features/OpenStreetMap.js';
 
 // Version du framework
 
-export const VERSION = '1.0.4';
+export const VERSION = '0.3.4';
