@@ -107,6 +107,20 @@ class CanvasFramework {
     } else {
       this.ctx = this.canvas.getContext('2d');
     }
+
+    // Worker pour multithreading
+    this.worker = new Worker('./CanvasWorker.js', { type: 'module' });
+    this.worker.onmessage = this.handleWorkerMessage.bind(this);
+    this.worker.postMessage({ type: 'INIT', payload: { components: [] } });
+
+    // Worker logique pour calculs séparés
+    this.logicWorker = new Worker('./LogicWorker.js', { type: 'module' });
+    this.logicWorker.onmessage = this.handleLogicWorkerMessage.bind(this);
+    this.logicWorkerState = {};
+
+    // Envoyer l'état initial au worker
+    this.logicWorker.postMessage({ type: 'SET_STATE', payload: this.state });
+
     // Gestion des événements
     this.isDragging = false;
     this.lastTouchY = 0;
@@ -141,6 +155,72 @@ class CanvasFramework {
     this.setupEventListeners();
     this.setupHistoryListener();
     this.startRenderLoop();
+  }
+
+  // ----- Worker UI -----
+  handleWorkerMessage(e) {
+    const { type, payload } = e.data;
+    switch(type) {
+      case 'LAYOUT_DONE':
+        for (let update of payload) {
+          const comp = this.components.find(c => c.id === update.id);
+          if (comp) comp.height = update.height;
+        }
+        break;
+      case 'SCROLL_UPDATED':
+        this.scrollOffset = payload.offset;
+        this.scrollVelocity = payload.velocity;
+        break;
+    }
+  }
+
+  updateLayoutAsync() {
+    this.worker.postMessage({ type: 'UPDATE_LAYOUT' });
+  }
+
+  updateScrollInertia() {
+    const maxScroll = this.getMaxScroll();
+    this.worker.postMessage({
+      type: 'SCROLL_INERTIA',
+      payload: {
+        offset: this.scrollOffset,
+        velocity: this.scrollVelocity,
+        friction: this.scrollFriction,
+        maxScroll
+      }
+    });
+  }
+
+  // ------ Logic Worker --------
+  handleLogicWorkerMessage(e) {
+    const { type, payload } = e.data;
+    switch(type) {
+        case 'STATE_UPDATED':
+        // Le worker a renvoyé le nouvel état global
+        this.logicWorkerState = payload;
+        break;
+
+        case 'EXECUTION_RESULT':
+        // Résultat d'une tâche spécifique envoyée au worker
+        if (this.onWorkerResult) this.onWorkerResult(payload);
+        break;
+
+        case 'EXECUTION_ERROR':
+        console.error('Logic Worker Error:', payload);
+        break;
+    }
+  }
+
+  runLogicTask(taskName, taskData) {
+    this.logicWorker.postMessage({
+        type: 'EXECUTE_TASK',
+        payload: { taskName, taskData }
+    });
+  }
+
+  updateLogicWorkerState(newState) {
+    this.logicWorkerState = { ...this.logicWorkerState, ...newState };
+    this.logicWorker.postMessage({ type: 'SET_STATE', payload: this.logicWorkerState });
   }
 
   detectPlatform() {
