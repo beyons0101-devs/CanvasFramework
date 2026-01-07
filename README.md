@@ -42,28 +42,19 @@ The WebView is used **only as a JavaScript runtime**, not as a UI system.
 
 ## 🧠 Architecture
 
-┌──────────────────────────┐
-│ Application              │
-│ (Views, Components)      │
-└───────────▲──────────────┘
-│
-┌───────────┴──────────────┐
-│ UI Engine                │
-│ Layout • Input • State   │
-│ Animation • Routing      │
-└───────────▲──────────────┘
-│
-┌───────────┴──────────────┐
-│ Canvas / WebGL Renderer  │
-└───────────▲──────────────┘
-│
-┌───────────┴──────────────┐
-│ WebView Runtime          │ 
-│ (Capacitor / Cordova)    │
-└──────────────────────────┘
+## 🧠 Architecture
 
-yaml
-Copier le code
+```mermaid
+flowchart TB
+    A[Application Layer<br/>Views · Components · State] --> B
+    B[UI Engine<br/>Layout · Input · Animation · Routing] --> C
+    C[Renderer<br/>Canvas 2D / WebGL] --> D
+    D[WebView Runtime<br/>Capacitor · Cordova]
+
+    style A fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    style B fill:#e8f5e9,stroke:#4caf50,stroke-width:2px
+    style C fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    style D fill:#fce4ec,stroke:#e91e63,stroke-width:2px
 
 ### Key point
 
