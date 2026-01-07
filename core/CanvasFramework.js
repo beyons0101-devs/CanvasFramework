@@ -64,6 +64,15 @@ import Skeleton from '../features/Skeleton.js';
 import SignaturePad from '../features/SignaturePad.js';
 import OpenStreetMap from '../features/OpenStreetMap.js';
 
+// Manager
+import ErrorHandler from '../manager/ErrorHandler.js';
+import PerformanceMonitor from '../manager/PerformanceMonitor.js';
+import AccessibilityManager from '../manager/AccessibilityManager.js';
+import MemoryManager from '../manager/MemoryManager.js';
+import SecurityManager from '../manager/SecurityManager.js';
+import FeatureFlags from '../manager/FeatureFlags.js';
+
+// WebGL Adapter
 import WebGLCanvasAdapter from './WebGLCanvasAdapter.js';
 
 /**
