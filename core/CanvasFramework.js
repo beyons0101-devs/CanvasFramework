@@ -56,6 +56,7 @@ import OfflineSyncManager from '../utils/OfflineSyncManager.js';
 import FetchClient from '../utils/FetchClient.js';
 import GeoLocationService from '../utils/GeoLocationService.js';
 import WebSocketClient from '../utils/WebSocketClient.js';
+import AnimationEngine from '../utils/AnimationEngine.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -137,6 +138,9 @@ class CanvasFramework {
     this.dirtyComponents = new Set();
     this.optimizationEnabled = false;
     
+	// AJOUTER CETTE LIGNE
+    this.animator = new AnimationEngine();
+	
     // ===== NOUVEAU SYSTÈME DE ROUTING =====
     this.routes = new Map();
     this.currentRoute = '/';
@@ -160,6 +164,11 @@ class CanvasFramework {
     this.setupEventListeners();
     this.setupHistoryListener();
     this.startRenderLoop();
+  }
+  
+  // AJOUTER CETTE MÉTHODE (optionnel - pour faciliter l'accès)
+  animate(component, options) {
+    return this.animator.animate(component, options);
   }
 
   // ----- Worker UI -----
@@ -717,6 +726,7 @@ class CanvasFramework {
              comp instanceof Drawer || 
              comp instanceof Dialog ||
              comp instanceof Modal ||
+			 comp instanceof FAB ||
              comp instanceof BottomSheet ||
              comp instanceof ContextMenu ||
 			 comp instanceof OpenStreetMap ||
@@ -951,7 +961,8 @@ class CanvasFramework {
            comp instanceof Drawer || 
            comp instanceof Dialog ||
            comp instanceof Modal ||
-           comp instanceof BottomSheet ||
+           comp instanceof FAB ||
+		   comp instanceof BottomSheet ||
            comp instanceof ContextMenu ||
 		   comp instanceof OpenStreetMap ||
            comp instanceof SelectDialog;
