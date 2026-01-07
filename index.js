@@ -68,7 +68,8 @@ export { default as WebSocketClient } from './utils/WebSocketClient.js';
 export { default as PullToRefresh } from './features/PullToRefresh.js';
 export { default as Skeleton } from './features/Skeleton.js';
 export { default as SignaturePad } from './features/SignaturePad.js';
+export { default as OpenStreetMap } from './features/OpenStreetMap.js';
 
 // Version du framework
 
-export const VERSION = '1.0.2';
+export const VERSION = '1.0.4';
