@@ -53,6 +53,10 @@ import EventBus from '../utils/EventBus.js';
 import IndexedDBManager from '../utils/IndexedDBManager.js';
 import QueryBuilder from '../utils/QueryBuilder.js';
 import OfflineSyncManager from '../utils/OfflineSyncManager.js';
+import FetchClient from '../utils/FetchClient.js';
+import GeoLocationService from '../utils/GeoLocationService.js';
+import WebSocketClient from '../utils/WebSocketClient.js';
+
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
 import Skeleton from '../features/Skeleton.js';
@@ -961,5 +965,6 @@ class CanvasFramework {
     toast.show();
   }
 }
+
 
 export default CanvasFramework;
