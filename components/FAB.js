@@ -1,12 +1,14 @@
 import Component from '../core/Component.js';
+
 /**
- * Bouton d'action flottant
+ * Bouton d'action flottant (Material Design 3)
  * @class
  * @extends Component
  * @property {string} icon - Icône du bouton
  * @property {boolean} extended - Mode étendu (avec texte)
  * @property {string} text - Texte (en mode étendu)
  * @property {string} platform - Plateforme
+ * @property {string} variant - Variante Material 3: 'small', 'medium', 'large', 'extended'
  * @property {number} size - Taille du bouton
  * @property {string} bgColor - Couleur de fond
  * @property {string} iconColor - Couleur de l'icône
@@ -20,19 +22,39 @@ class FAB extends Component {
    * @param {string} [options.icon='+'] - Icône
    * @param {boolean} [options.extended=false] - Mode étendu
    * @param {string} [options.text=''] - Texte (mode étendu)
-   * @param {number} [options.size=56] - Taille
+   * @param {string} [options.variant='medium'] - Variante: 'small', 'medium', 'large', 'extended'
    * @param {string} [options.bgColor] - Couleur (auto selon platform)
    * @param {string} [options.iconColor='#FFFFFF'] - Couleur de l'icône
    */
   constructor(framework, options = {}) {
     super(framework, options);
+    
     this.icon = options.icon || '+';
     this.extended = options.extended || false;
     this.text = options.text || '';
     this.platform = framework.platform;
-    this.size = options.size || 56;
-    this.bgColor = options.bgColor || (framework.platform === 'material' ? '#6200EE' : '#007AFF');
+    this.variant = options.variant || 'medium';
+    
+    // Tailles selon Material Design 3
+    const sizes = {
+      small: 40,
+      medium: 56,
+      large: 96
+    };
+    
+    this.size = options.size || sizes[this.variant] || 56;
+    
+    // Couleurs Material 3
+    this.bgColor = options.bgColor || (framework.platform === 'material' ? '#6750A4' : '#007AFF');
     this.iconColor = options.iconColor || '#FFFFFF';
+    
+    // Border radius selon Material 3 (pas circulaire!)
+    this.borderRadius = {
+      small: 12,
+      medium: 16,
+      large: 28,
+      extended: 16
+    }[this.variant] || 16;
     
     // Position par défaut en bas à droite
     this.x = options.x !== undefined ? options.x : framework.width - this.size - 16;
@@ -41,9 +63,12 @@ class FAB extends Component {
     // Si extended, ajuster la largeur
     if (this.extended && this.text) {
       const ctx = framework.ctx;
+      ctx.save();
       ctx.font = 'bold 14px -apple-system, sans-serif';
       const textWidth = ctx.measureText(this.text).width;
+      ctx.restore();
       this.width = this.size + textWidth + 24;
+      this.borderRadius = 16;
     } else {
       this.width = this.size;
     }
@@ -51,6 +76,8 @@ class FAB extends Component {
     
     // Effet ripple
     this.ripples = [];
+    
+    // ✅ CORRECTION : Binder onPress comme dans Button
     this.onPress = this.handlePress.bind(this);
   }
   
@@ -61,13 +88,14 @@ class FAB extends Component {
    * @private
    */
   handlePress(x, y) {
+    // Créer un ripple au point de clic (Material uniquement)
     if (this.platform === 'material') {
       const adjustedY = y - this.framework.scrollOffset;
       this.ripples.push({
         x: x - this.x,
         y: adjustedY - this.y,
         radius: 0,
-        maxRadius: this.width * 1.2,
+        maxRadius: Math.max(this.width, this.height) * 1.5,
         opacity: 1
       });
       this.animateRipple();
@@ -88,11 +116,13 @@ class FAB extends Component {
           hasActiveRipples = true;
         }
         
+        // Fade out après 50% de l'expansion
         if (ripple.radius >= ripple.maxRadius * 0.5) {
           ripple.opacity -= 0.05;
         }
       }
       
+      // Nettoyer les ripples terminés
       this.ripples = this.ripples.filter(r => r.opacity > 0);
       
       if (hasActiveRipples) {
@@ -110,50 +140,54 @@ class FAB extends Component {
   draw(ctx) {
     ctx.save();
     
-    // Ombre
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 12;
-    ctx.shadowOffsetY = 6;
+    // Ombre (elevation)
+    if (!this.pressed) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = this.platform === 'material' ? 8 : 12;
+      ctx.shadowOffsetY = this.platform === 'material' ? 4 : 6;
+    }
     
-    // Background
+    // Background - Material 3: rectangles arrondis, pas cercles!
     ctx.fillStyle = this.pressed ? this.darkenColor(this.bgColor) : this.bgColor;
     ctx.beginPath();
-    
-    if (this.extended) {
-      // Forme étendue (pilule)
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.height / 2);
-    } else {
-      // Cercle
-      ctx.arc(this.x + this.size / 2, this.y + this.size / 2, this.size / 2, 0, Math.PI * 2);
-    }
+    this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
     ctx.fill();
     
     ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
     
-    // Clipping pour les ripples
-    ctx.save();
-    ctx.beginPath();
-    if (this.extended) {
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.height / 2);
-    } else {
-      ctx.arc(this.x + this.size / 2, this.y + this.size / 2, this.size / 2, 0, Math.PI * 2);
-    }
-    ctx.clip();
-    
-    // Dessiner les ripples
-    for (let ripple of this.ripples) {
-      ctx.globalAlpha = ripple.opacity;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+    // Clipping pour les ripples (Material uniquement)
+    if (this.platform === 'material') {
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(this.x + ripple.x, this.y + ripple.y, ripple.radius, 0, Math.PI * 2);
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
+      ctx.clip();
+      
+      // Dessiner les ripples
+      for (let ripple of this.ripples) {
+        ctx.globalAlpha = ripple.opacity;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.arc(this.x + ripple.x, this.y + ripple.y, ripple.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      ctx.restore();
+    }
+    
+    // Overlay si pressed (iOS)
+    if (this.pressed && this.platform === 'cupertino') {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.beginPath();
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
       ctx.fill();
     }
     
-    ctx.restore();
-    
     // Icône
     ctx.fillStyle = this.iconColor;
-    ctx.font = 'bold 24px sans-serif';
+    const iconSize = this.variant === 'large' ? 36 : 24;
+    ctx.font = `bold ${iconSize}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
@@ -166,7 +200,7 @@ class FAB extends Component {
       ctx.fillText(this.text, this.x + this.size + 12, this.y + this.size / 2);
     } else {
       // Icône centrée
-      ctx.fillText(this.icon, this.x + this.size / 2, this.y + this.size / 2);
+      ctx.fillText(this.icon, this.x + this.width / 2, this.y + this.height / 2);
     }
     
     ctx.restore();
@@ -183,7 +217,6 @@ class FAB extends Component {
    * @private
    */
   roundRect(ctx, x, y, width, height, radius) {
-    ctx.beginPath();
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
     ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
@@ -193,7 +226,6 @@ class FAB extends Component {
     ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
   }
   
   /**
@@ -229,14 +261,9 @@ class FAB extends Component {
    * @returns {boolean} True si le point est dans le FAB
    */
   isPointInside(x, y) {
-    if (this.extended) {
-      return x >= this.x && x <= this.x + this.width && 
-             y >= this.y && y <= this.y + this.height;
-    } else {
-      const dx = x - (this.x + this.size / 2);
-      const dy = y - (this.y + this.size / 2);
-      return Math.sqrt(dx * dx + dy * dy) <= this.size / 2;
-    }
+    // Material 3: toujours des rectangles arrondis, plus de cercles
+    return x >= this.x && x <= this.x + this.width && 
+           y >= this.y && y <= this.y + this.height;
   }
 }
 
