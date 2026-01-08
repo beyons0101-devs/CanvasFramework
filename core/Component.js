@@ -43,6 +43,20 @@ class Component {
   }
 
   /**
+   * Vérifie si le composant est visible à l'écran (en tenant compte du scroll)
+   * @returns {boolean}
+   */
+  isVisibleOnScreen() {
+    const yPos = this.framework.isFixedComponent(this) ? this.y : this.y + this.framework.scrollOffset;
+    const xPos = this.x;
+    return (
+      yPos + this.height > 0 && yPos < this.framework.height &&
+      xPos + this.width > 0 && xPos < this.framework.width &&
+      this.visible
+    );
+  }
+
+  /**
    * Marque le composant pour redessin
    * Appelez cette méthode après avoir modifié une propriété
    */
@@ -82,5 +96,6 @@ class Component {
     // À implémenter par les sous-classes
   }
 }
+
 
 export default Component;
