@@ -43,17 +43,24 @@ class Component {
   }
 
   /**
-   * Vérifie si le composant est visible à l'écran (en tenant compte du scroll)
-   * @returns {boolean}
+   * Vérifie si le composant dépasse du viewport
+   * @returns {Object|null} - { top, bottom, left, right } ou null si aucun débordement
    */
-  isVisibleOnScreen() {
+  getOverflow() {
     const yPos = this.framework.isFixedComponent(this) ? this.y : this.y + this.framework.scrollOffset;
     const xPos = this.x;
-    return (
-      yPos + this.height > 0 && yPos < this.framework.height &&
-      xPos + this.width > 0 && xPos < this.framework.width &&
-      this.visible
-    );
+
+    const overflow = {
+      top: yPos < 0,
+      bottom: yPos + this.height > this.framework.height,
+      left: xPos < 0,
+      right: xPos + this.width > this.framework.width
+    };
+
+    if (overflow.top || overflow.bottom || overflow.left || overflow.right) {
+      return overflow;
+    }
+    return null;
   }
 
   /**
@@ -118,4 +125,5 @@ class Component {
 
 
 export default Component;
+
 
