@@ -57,6 +57,25 @@ class Component {
   }
 
   /**
+   * Vérifie si ce composant chevauche un autre composant
+   * @param {Component} other
+   * @returns {boolean}
+   */
+  overlapsWith(other) {
+    const thisX = this.x;
+    const thisY = this.framework.isFixedComponent(this) ? this.y : this.y + this.framework.scrollOffset;
+    const otherX = other.x;
+    const otherY = this.framework.isFixedComponent(other) ? other.y : other.y + this.framework.scrollOffset;
+
+    return !(
+      thisX + this.width <= otherX ||
+      thisX >= otherX + other.width ||
+      thisY + this.height <= otherY ||
+      thisY >= otherY + other.height
+    );
+  }
+
+  /**
    * Marque le composant pour redessin
    * Appelez cette méthode après avoir modifié une propriété
    */
@@ -99,3 +118,4 @@ class Component {
 
 
 export default Component;
+
