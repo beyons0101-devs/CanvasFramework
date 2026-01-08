@@ -79,6 +79,27 @@ import FeatureFlags from '../manager/FeatureFlags.js';
 // WebGL Adapter
 import WebGLCanvasAdapter from './WebGLCanvasAdapter.js';
 
+// theme
+export const lightTheme = {
+  background: '#FFFFFF',
+  text: '#000000',
+  primary: '#6200EE',
+  secondary: '#03DAC6',
+  buttonText: '#FFFFFF',
+  buttonBackground: '#6200EE',
+  border: '#E0E0E0'
+};
+
+export const darkTheme = {
+  background: '#121212',
+  text: '#FFFFFF',
+  primary: '#BB86FC',
+  secondary: '#03DAC6',
+  buttonText: '#000000',
+  buttonBackground: '#BB86FC',
+  border: '#333333'
+};
+
 /**
  * Framework principal pour créer des interfaces utilisateur basées sur Canvas
  * @class
@@ -111,7 +132,13 @@ class CanvasFramework {
     this.dpr = window.devicePixelRatio || 1;
     
     this.platform = this.detectPlatform();
-    this.components = [];
+    
+    // Thèmes
+    this.lightTheme = lightTheme;
+    this.darkTheme = darkTheme;
+    this.theme = lightTheme; // thème par défaut
+    
+	this.components = [];
     this.state = {};
     // NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
     this.useWebGL = options.useWebGL !== false; // true par défaut
@@ -182,7 +209,24 @@ class CanvasFramework {
     this.setupHistoryListener();
     this.startRenderLoop();
   }
-		
+
+  // Set Theme dynamique
+  setTheme(theme) {
+    this.theme = theme;
+    // marque tous les composants dirty pour redraw
+    for (let comp of this.components) {
+      comp.markDirty();
+    }
+  }
+  // Switch Theme
+  toggleDarkMode() {
+    if (this.theme === lightTheme) {
+      this.setTheme(darkTheme);
+    } else {
+      this.setTheme(lightTheme);
+    }
+  }
+	
   enableFpsDisplay(enable = true) {
     this.showFps = enable;
   }
@@ -1175,5 +1219,6 @@ class CanvasFramework {
 
 
 export default CanvasFramework;
+
 
 
