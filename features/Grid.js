@@ -1,4 +1,4 @@
-import LayoutComponent from '../core/LayoutComponent.js';
+import LayoutComponent from './LayoutComponent.js';
 
 class Grid extends LayoutComponent {
   constructor(framework, options = {}) {
