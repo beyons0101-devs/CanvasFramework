@@ -70,6 +70,10 @@ export { default as PullToRefresh } from './features/PullToRefresh.js';
 export { default as Skeleton } from './features/Skeleton.js';
 export { default as SignaturePad } from './features/SignaturePad.js';
 export { default as OpenStreetMap } from './features/OpenStreetMap.js';
+export { default as LayoutComponent } from './features/LayoutComponent.js';
+export { default as Grid } from './features/Grid.js';
+export { default as Row } from './features/Row.js';
+export { default as Column } from './features/Column.js';
 
 // Manager
 export { default as ErrorHandler } from './manager/ErrorHandler.js';
@@ -82,3 +86,4 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.3.4';
+
