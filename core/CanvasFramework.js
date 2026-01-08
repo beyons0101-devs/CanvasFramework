@@ -122,7 +122,11 @@ class CanvasFramework {
     } else {
       this.ctx = this.canvas.getContext('2d');
     }
-
+	// Calcule FPS
+	this.fps = 0;
+	this._frames = 0;
+	this._lastFpsTime = performance.now();
+	this.showFps = false; // désactivé par défaut
     // Worker pour multithreading
     this.worker = new Worker('./CanvasWorker.js', { type: 'module' });
     this.worker.onmessage = this.handleWorkerMessage.bind(this);
@@ -174,7 +178,11 @@ class CanvasFramework {
     this.setupHistoryListener();
     this.startRenderLoop();
   }
-  
+		
+  enableFpsDisplay(enable = true) {
+    this.showFps = enable;
+  }
+
   // AJOUTER CETTE MÉTHODE (optionnel - pour faciliter l'accès)
   animate(component, options) {
     return this.animator.animate(component, options);
@@ -958,7 +966,25 @@ class CanvasFramework {
           if (comp.visible) comp.draw(this.ctx);
         }
       }
-      
+
+	 // --- Compteur FPS ---
+	 this._frames++;
+	 const now = performance.now();
+	 if (now - this._lastFpsTime >= 1000) {
+	     this.fps = this._frames;
+	     this._frames = 0;
+	     this._lastFpsTime = now;
+	 }
+
+	 // --- Affichage FPS ---
+	 if (this.showFps) {
+    	 this.ctx.save();
+    	 this.ctx.fillStyle = 'lime';
+    	 this.ctx.font = '16px monospace';
+    	 this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
+    	 this.ctx.restore();
+	 }
+		
       requestAnimationFrame(render);
     };
     render();
@@ -988,6 +1014,7 @@ class CanvasFramework {
     toast.show();
   }
 }
+
 
 
 export default CanvasFramework;
