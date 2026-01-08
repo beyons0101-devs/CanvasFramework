@@ -210,14 +210,34 @@ class CanvasFramework {
     this.startRenderLoop();
   }
 
+  wrapContext(ctx, theme) {
+    const originalFillStyle = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'fillStyle');
+    Object.defineProperty(ctx, 'fillStyle', {
+      set: (value) => {
+        // Si value est blanc/noir ou une couleur “neutre”, tu remplaces par theme
+        if (value === '#FFFFFF' || value === '#000000') {
+          originalFillStyle.set.call(ctx, theme.text); 
+        } else {
+          originalFillStyle.set.call(ctx, value);
+        }
+      },
+      get: () => originalFillStyle.get.call(ctx)
+    });
+  }	
+
   // Set Theme dynamique
   setTheme(theme) {
     this.theme = theme;
-    // marque tous les composants dirty pour redraw
-    for (let comp of this.components) {
-      comp.markDirty();
+
+    // Intercepter le context pour remplacer les couleurs globalement
+    if (!this.useWebGL) {
+      this.wrapContext(this.ctx, theme);
     }
+
+    // marque tous les composants dirty pour redraw
+    for (let comp of this.components) comp.markDirty();
   }
+	
   // Switch Theme
   toggleDarkMode() {
     if (this.theme === lightTheme) {
@@ -1219,6 +1239,7 @@ class CanvasFramework {
 
 
 export default CanvasFramework;
+
 
 
 
