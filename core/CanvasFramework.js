@@ -158,6 +158,7 @@ class CanvasFramework {
 	this._frames = 0;
 	this._lastFpsTime = performance.now();
 	this.showFps = false; // désactivé par défaut
+	this.debbug = true;
     // Worker pour multithreading
     this.worker = new Worker('./CanvasWorker.js', { type: 'module' });
     this.worker.onmessage = this.handleWorkerMessage.bind(this);
@@ -968,152 +969,168 @@ class CanvasFramework {
 
   enableOptimization() {
     this.optimizationEnabled = true;
-    console.log('🚀 Mode optimisé activé');
   }
 
   /**
- * Dessine un petit triangle rouge pour indiquer overflow (style Flutter)
- */
- drawFlutterOverflow(comp) {
-   const yPos = this.isFixedComponent(comp) ? comp.y : comp.y + this.scrollOffset;
-   const xPos = comp.x;
-
-   const overflow = comp.getOverflow();
-   if (!overflow) return;
-
-   const ctx = this.ctx;
-   ctx.save();
-   ctx.fillStyle = 'red';
-
-   const size = 12; // taille du triangle
-   const padding = 2; // petit offset du bord
-
-   if (overflow.top) {
-     ctx.beginPath();
-     ctx.moveTo(xPos + comp.width - size - padding, yPos + padding);
-     ctx.lineTo(xPos + comp.width - padding, yPos + padding);
-     ctx.lineTo(xPos + comp.width - padding, yPos + size + padding);
-     ctx.closePath();
-     ctx.fill();
-   }
-
-   if (overflow.bottom) {
-     ctx.beginPath();
-     ctx.moveTo(xPos + comp.width - size - padding, yPos + comp.height - padding);
-     ctx.lineTo(xPos + comp.width - padding, yPos + comp.height - padding);
-     ctx.lineTo(xPos + comp.width - padding, yPos + comp.height - size - padding);
-     ctx.closePath();
-     ctx.fill();
-   }
-
-   if (overflow.left) {
-     ctx.beginPath();
-     ctx.moveTo(xPos + padding, yPos + padding);
-     ctx.lineTo(xPos + padding, yPos + size + padding);
-     ctx.lineTo(xPos + size + padding, yPos + padding);
-     ctx.closePath();
-     ctx.fill();
-   }
-
-   if (overflow.right) {
-     ctx.beginPath();
-     ctx.moveTo(xPos + comp.width - padding, yPos + padding);
-     ctx.lineTo(xPos + comp.width - padding, yPos + size + padding);
-     ctx.lineTo(xPos + comp.width - size - padding, yPos + padding);
-     ctx.closePath();
-     ctx.fill();
-   }
-
-   ctx.restore();
- }
-
- /*startRenderLoop() {
-    const render = () => {
-      // Gérer l'inertie du scroll
-      if (Math.abs(this.scrollVelocity) > 0.1 && !this.isDragging) {
-        this.scrollOffset += this.scrollVelocity;
-        this.scrollOffset = Math.max(Math.min(this.scrollOffset, 0), -this.getMaxScroll());
-        this.scrollVelocity *= this.scrollFriction;
-      } else {
-        this.scrollVelocity = 0;
+  * Dessine un petit triangle rouge pour indiquer overflow (style Flutter)
+  */
+  drawOverflowIndicators() {
+    const ctx = this.ctx;
+  
+    // Pour chaque composant
+    for (let comp of this.components) {
+      if (!comp.visible) continue;
+    
+      // Position réelle à l'écran
+      const isFixed = this.isFixedComponent(comp);
+      const screenY = isFixed ? comp.y : comp.y + this.scrollOffset;
+      const screenX = comp.x;
+    
+      // Vérifier si le composant TEXT a une largeur/hauteur incorrecte
+      let actualWidth = comp.width;
+      let actualHeight = comp.height;
+    
+      // Si c'est un Text, vérifier la taille réelle du texte
+      if (comp instanceof Text && comp.text && ctx.measureText) {
+        try {
+          // Sauvegarder le style actuel
+          ctx.save();
+        
+          // Appliquer le style du texte
+          if (comp.fontSize) {
+            ctx.font = `${comp.fontSize}px ${comp.fontFamily || 'Arial'}`;
+          }
+        
+          // Mesurer la taille réelle
+          const metrics = ctx.measureText(comp.text);
+          actualWidth = metrics.width + (comp.padding || 0) * 2;
+          actualHeight = (comp.fontSize || 16) + (comp.padding || 0) * 2;
+        
+          ctx.restore();
+        } catch (e) {
+          // En cas d'erreur, garder les dimensions par défaut
+        }
       }
+    
+      // Calculer les limites RÉELLES du composant
+      const compLeft = screenX;
+      const compRight = screenX + actualWidth;
+      const compTop = screenY;
+      const compBottom = screenY + actualHeight;
+    
+      // Vérifier les débordements avec les dimensions RÉELLES
+      const overflow = {
+        left: compLeft < 0,
+        right: compRight > this.width,
+        top: compTop < 0,
+        bottom: compBottom > this.height
+      };
+    
+      // Si aucun débordement, passer au suivant
+      if (!overflow.left && !overflow.right && !overflow.top && !overflow.bottom) {
+        continue;
+      }
+    
+      // DEBUG: Afficher les infos du composant
+      if (this.debbug) {
+		console.table({
+		  type: comp.constructor?.name,
+		  x: comp.x,
+		  y: comp.y,
+		  declaredSize: `${comp.width}x${comp.height}`,
+		  actualSize: `${actualWidth}x${actualHeight}`,
+		  screenPos: `(${screenX}, ${screenY})`,
+	   	  overflow
+	    });
+	  }
+    
+      // Dessiner les indicateurs
+      ctx.save();
+    
+      // 1. Bordures rouges sur les parties qui débordent
+      ctx.strokeStyle = 'red';
+      ctx.lineWidth = 2;
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+    
+      // Gauche
+      if (overflow.left) {
+        const overflowWidth = Math.min(actualWidth, -compLeft);
+        ctx.fillRect(compLeft, compTop, overflowWidth, actualHeight);
+        ctx.strokeRect(compLeft, compTop, overflowWidth, actualHeight);
+      }
+    
+      // Droite
+      if (overflow.right) {
+        const overflowStart = Math.max(0, this.width - compLeft);
+        const overflowWidth = Math.min(actualWidth, compRight - this.width);
+        ctx.fillRect(this.width - overflowWidth, compTop, overflowWidth, actualHeight);
+        ctx.strokeRect(this.width - overflowWidth, compTop, overflowWidth, actualHeight);
+      }
+    
+      // Haut
+      if (overflow.top) {
+        const overflowHeight = Math.min(actualHeight, -compTop);
+        ctx.fillRect(compLeft, compTop, actualWidth, overflowHeight);
+        ctx.strokeRect(compLeft, compTop, actualWidth, overflowHeight);
+      }
+    
+      // Bas
+      if (overflow.bottom) {
+        const overflowStart = Math.max(0, this.height - compTop);
+        const overflowHeight = Math.min(actualHeight, compBottom - this.height);
+        ctx.fillRect(compLeft, this.height - overflowHeight, actualWidth, overflowHeight);
+        ctx.strokeRect(compLeft, this.height - overflowHeight, actualWidth, overflowHeight);
+      }
+    
+      // 2. Points rouges aux coins
+      ctx.fillStyle = 'red';
+      const markerSize = 6;
+    
+      // Coin supérieur gauche
+      if (overflow.left || overflow.top) {
+        ctx.fillRect(compLeft, compTop, markerSize, markerSize);
+      }
+    
+      // Coin supérieur droit
+      if (overflow.right || overflow.top) {
+        ctx.fillRect(compRight - markerSize, compTop, markerSize, markerSize);
+      }
+    
+      // Coin inférieur gauche
+      if (overflow.left || overflow.bottom) {
+        ctx.fillRect(compLeft, compBottom - markerSize, markerSize, markerSize);
+      }
+    
+      // Coin inférieur droit
+      if (overflow.right || overflow.bottom) {
+        ctx.fillRect(compRight - markerSize, compBottom - markerSize, markerSize, markerSize);
+      }
+    
+      // 3. Texte d'information (optionnel)
+      if (this.debbug && comp.text) {
+        ctx.fillStyle = 'red';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'left';
       
-      // Mettre à jour l'animation de transition
-      if (this.transitionState.isTransitioning) {
-        this.ctx.clearRect(0, 0, this.width, this.height);
-        this.updateTransition();
-      }
-      // Mode normal sans transition
-      else if (this.optimizationEnabled && this.dirtyComponents.size > 0) {
-        for (let comp of this.dirtyComponents) {
-          if (comp.visible) {
-            const isFixed = this.isFixedComponent(comp);
-            const y = isFixed ? comp.y : comp.y + this.scrollOffset;
-            
-            this.ctx.clearRect(comp.x - 2, y - 2, comp.width + 4, comp.height + 4);
-            
-            if (isFixed) {
-              comp.draw(this.ctx);
-            } else {
-              this.ctx.save();
-              this.ctx.translate(0, this.scrollOffset);
-              comp.draw(this.ctx);
-              this.ctx.restore();
-            }
-            
-            if (comp.markClean) comp.markClean();
-          }
-        }
-        this.dirtyComponents.clear();
-      } else {
-        this.ctx.clearRect(0, 0, this.width, this.height);
-        
-        const scrollableComponents = [];
-        const fixedComponents = [];
-        
-        for (let comp of this.components) {
-          if (this.isFixedComponent(comp)) {
-            fixedComponents.push(comp);
-          } else {
-            scrollableComponents.push(comp);
-          }
-        }
-        
-        this.ctx.save();
-        this.ctx.translate(0, this.scrollOffset);
-        for (let comp of scrollableComponents) {
-          if (comp.visible) comp.draw(this.ctx);
-        }
-        this.ctx.restore();
-        
-        for (let comp of fixedComponents) {
-          if (comp.visible) comp.draw(this.ctx);
+        const overflowText = [];
+        if (overflow.left) overflowText.push('←');
+        if (overflow.right) overflowText.push('→');
+        if (overflow.top) overflowText.push('↑');
+        if (overflow.bottom) overflowText.push('↓');
+      
+        if (overflowText.length > 0) {
+          ctx.fillText(
+            `"${comp.text.substring(0, 10)}${comp.text.length > 10 ? '...' : ''}" ${overflowText.join('')}`,
+            compLeft + 5,
+            compTop - 5
+          );
         }
       }
-
-	 // --- Compteur FPS ---
-	 this._frames++;
-	 const now = performance.now();
-	 if (now - this._lastFpsTime >= 1000) {
-	     this.fps = this._frames;
-	     this._frames = 0;
-	     this._lastFpsTime = now;
-	 }
-
-	 // --- Affichage FPS ---
-	 if (this.showFps) {
-    	 this.ctx.save();
-    	 this.ctx.fillStyle = 'lime';
-    	 this.ctx.font = '16px monospace';
-    	 this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
-    	 this.ctx.restore();
-	 }
-		
-      requestAnimationFrame(render);
-    };
-    render();
-  }*/
-
+    
+      ctx.restore();
+    }
+  }
+ 
   startRenderLoop() {
     const render = () => {
       // 1️⃣ Scroll inertia
@@ -1147,8 +1164,6 @@ class CanvasFramework {
 
             // Overflow indicator style Flutter
             const overflow = comp.getOverflow?.();
-            if (overflow) this.drawFlutterOverflow(comp);
-
             if (comp.markClean) comp.markClean();
           }
         }
@@ -1169,10 +1184,6 @@ class CanvasFramework {
         for (let comp of scrollableComponents) {
           if (comp.visible) {
             comp.draw(this.ctx);
-
-            // Overflow indicator style Flutter
-            const overflow = comp.getOverflow?.();
-            if (overflow) this.drawFlutterOverflow(comp);
           }
         }
         this.ctx.restore();
@@ -1181,9 +1192,6 @@ class CanvasFramework {
         for (let comp of fixedComponents) {
           if (comp.visible) {
             comp.draw(this.ctx);
-
-            const overflow = comp.getOverflow?.();
-            if (overflow) this.drawFlutterOverflow(comp);
           }
         }
       }
@@ -1204,6 +1212,10 @@ class CanvasFramework {
         this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
         this.ctx.restore();
       }
+	  
+	  if(this.debbug) {
+		  this.drawOverflowIndicators();
+	  }
 
       requestAnimationFrame(render);
     };
@@ -1236,10 +1248,4 @@ class CanvasFramework {
   }
 }
 
-
-
 export default CanvasFramework;
-
-
-
-
