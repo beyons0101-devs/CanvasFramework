@@ -63,6 +63,10 @@ import PullToRefresh from '../features/PullToRefresh.js';
 import Skeleton from '../features/Skeleton.js';
 import SignaturePad from '../features/SignaturePad.js';
 import OpenStreetMap from '../features/OpenStreetMap.js';
+import LayoutComponent from '../features/LayoutComponent.js';
+import Grid from '../features/Grid.js';
+import Row from '../features/Row.js';
+import Column from '../features/Column.js';
 
 // Manager
 import ErrorHandler from '../manager/ErrorHandler.js';
@@ -1171,4 +1175,5 @@ class CanvasFramework {
 
 
 export default CanvasFramework;
+
 
