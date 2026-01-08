@@ -903,7 +903,63 @@ class CanvasFramework {
     console.log('🚀 Mode optimisé activé');
   }
 
-  startRenderLoop() {
+  /**
+ * Dessine un petit triangle rouge pour indiquer overflow (style Flutter)
+ */
+ drawFlutterOverflow(comp) {
+   const yPos = this.isFixedComponent(comp) ? comp.y : comp.y + this.scrollOffset;
+   const xPos = comp.x;
+
+   const overflow = comp.getOverflow();
+   if (!overflow) return;
+
+   const ctx = this.ctx;
+   ctx.save();
+   ctx.fillStyle = 'red';
+
+   const size = 12; // taille du triangle
+   const padding = 2; // petit offset du bord
+
+   if (overflow.top) {
+     ctx.beginPath();
+     ctx.moveTo(xPos + comp.width - size - padding, yPos + padding);
+     ctx.lineTo(xPos + comp.width - padding, yPos + padding);
+     ctx.lineTo(xPos + comp.width - padding, yPos + size + padding);
+     ctx.closePath();
+     ctx.fill();
+   }
+
+   if (overflow.bottom) {
+     ctx.beginPath();
+     ctx.moveTo(xPos + comp.width - size - padding, yPos + comp.height - padding);
+     ctx.lineTo(xPos + comp.width - padding, yPos + comp.height - padding);
+     ctx.lineTo(xPos + comp.width - padding, yPos + comp.height - size - padding);
+     ctx.closePath();
+     ctx.fill();
+   }
+
+   if (overflow.left) {
+     ctx.beginPath();
+     ctx.moveTo(xPos + padding, yPos + padding);
+     ctx.lineTo(xPos + padding, yPos + size + padding);
+     ctx.lineTo(xPos + size + padding, yPos + padding);
+     ctx.closePath();
+     ctx.fill();
+   }
+
+   if (overflow.right) {
+     ctx.beginPath();
+     ctx.moveTo(xPos + comp.width - padding, yPos + padding);
+     ctx.lineTo(xPos + comp.width - padding, yPos + size + padding);
+     ctx.lineTo(xPos + comp.width - size - padding, yPos + padding);
+     ctx.closePath();
+     ctx.fill();
+   }
+
+   ctx.restore();
+ }
+
+ /*startRenderLoop() {
     const render = () => {
       // Gérer l'inertie du scroll
       if (Math.abs(this.scrollVelocity) > 0.1 && !this.isDragging) {
@@ -988,8 +1044,105 @@ class CanvasFramework {
       requestAnimationFrame(render);
     };
     render();
-  }
+  }*/
 
+  startRenderLoop() {
+    const render = () => {
+      // 1️⃣ Scroll inertia
+      if (Math.abs(this.scrollVelocity) > 0.1 && !this.isDragging) {
+        this.scrollOffset += this.scrollVelocity;
+        this.scrollOffset = Math.max(Math.min(this.scrollOffset, 0), -this.getMaxScroll());
+        this.scrollVelocity *= this.scrollFriction;
+      } else {
+        this.scrollVelocity = 0;
+      }
+
+      // 2️⃣ Clear canvas
+      this.ctx.clearRect(0, 0, this.width, this.height);
+
+      // 3️⃣ Transition handling
+      if (this.transitionState.isTransitioning) {
+        this.updateTransition();
+      } else if (this.optimizationEnabled && this.dirtyComponents.size > 0) {
+        // Dirty components redraw
+        for (let comp of this.dirtyComponents) {
+          if (comp.visible) {
+            const isFixed = this.isFixedComponent(comp);
+            const y = isFixed ? comp.y : comp.y + this.scrollOffset;
+
+            this.ctx.clearRect(comp.x - 2, y - 2, comp.width + 4, comp.height + 4);
+
+            this.ctx.save();
+            if (!isFixed) this.ctx.translate(0, this.scrollOffset);
+            comp.draw(this.ctx);
+            this.ctx.restore();
+
+            // Overflow indicator style Flutter
+            const overflow = comp.getOverflow?.();
+            if (overflow) this.drawFlutterOverflow(comp);
+
+            if (comp.markClean) comp.markClean();
+          }
+        }
+        this.dirtyComponents.clear();
+      } else {
+        // Full redraw
+        const scrollableComponents = [];
+        const fixedComponents = [];
+
+        for (let comp of this.components) {
+          if (this.isFixedComponent(comp)) fixedComponents.push(comp);
+          else scrollableComponents.push(comp);
+        }
+
+        // Scrollable
+        this.ctx.save();
+        this.ctx.translate(0, this.scrollOffset);
+        for (let comp of scrollableComponents) {
+          if (comp.visible) {
+            comp.draw(this.ctx);
+
+            // Overflow indicator style Flutter
+            const overflow = comp.getOverflow?.();
+            if (overflow) this.drawFlutterOverflow(comp);
+          }
+        }
+        this.ctx.restore();
+
+        // Fixed
+        for (let comp of fixedComponents) {
+          if (comp.visible) {
+            comp.draw(this.ctx);
+
+            const overflow = comp.getOverflow?.();
+            if (overflow) this.drawFlutterOverflow(comp);
+          }
+        }
+      }
+
+      // 4️⃣ FPS
+      this._frames++;
+      const now = performance.now();
+      if (now - this._lastFpsTime >= 1000) {
+        this.fps = this._frames;
+        this._frames = 0;
+        this._lastFpsTime = now;
+      }
+
+      if (this.showFps) {
+        this.ctx.save();
+        this.ctx.fillStyle = 'lime';
+        this.ctx.font = '16px monospace';
+        this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
+        this.ctx.restore();
+      }
+
+      requestAnimationFrame(render);
+    };
+
+    render();
+  }
+	
   isFixedComponent(comp) {
     return comp instanceof AppBar || 
            comp instanceof BottomNavigationBar || 
@@ -1018,3 +1171,4 @@ class CanvasFramework {
 
 
 export default CanvasFramework;
+
