@@ -43,46 +43,6 @@ class Component {
   }
 
   /**
-   * Vérifie si le composant dépasse du viewport
-   * @returns {Object|null} - { top, bottom, left, right } ou null si aucun débordement
-   */
-  getOverflow() {
-    const yPos = this.framework.isFixedComponent(this) ? this.y : this.y + this.framework.scrollOffset;
-    const xPos = this.x;
-
-    const overflow = {
-      top: yPos < 0,
-      bottom: yPos + this.height > this.framework.height,
-      left: xPos < 0,
-      right: xPos + this.width > this.framework.width
-    };
-
-    if (overflow.top || overflow.bottom || overflow.left || overflow.right) {
-      return overflow;
-    }
-    return null;
-  }
-
-  /**
-   * Vérifie si ce composant chevauche un autre composant
-   * @param {Component} other
-   * @returns {boolean}
-   */
-  overlapsWith(other) {
-    const thisX = this.x;
-    const thisY = this.framework.isFixedComponent(this) ? this.y : this.y + this.framework.scrollOffset;
-    const otherX = other.x;
-    const otherY = this.framework.isFixedComponent(other) ? other.y : other.y + this.framework.scrollOffset;
-
-    return !(
-      thisX + this.width <= otherX ||
-      thisX >= otherX + other.width ||
-      thisY + this.height <= otherY ||
-      thisY >= otherY + other.height
-    );
-  }
-
-  /**
    * Marque le composant pour redessin
    * Appelez cette méthode après avoir modifié une propriété
    */
@@ -125,5 +85,6 @@ class Component {
 
 
 export default Component;
+
 
 
