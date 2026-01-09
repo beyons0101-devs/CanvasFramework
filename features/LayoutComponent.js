@@ -12,13 +12,23 @@ class LayoutComponent extends Component {
     return child;
   }
 
-  layout() {
-    // À implémenter par Row / Column / Grid
+  layout(constraints = makeConstraints(this)) {
+    for (const child of this.children) {
+      const size = child.measure(constraints);
+      child.width = size.width;
+      child.height = size.height;
+
+      // layout récursif
+      if (child.layout) {
+        child.layout({
+          minWidth: 0,
+          minHeight: 0,
+          maxWidth: child.width,
+          maxHeight: child.height
+        });
+      }
+    }
   }
 
-  draw(ctx) {
-    // Ne dessine rien
-  }
+  draw(ctx) {}
 }
-
-export default LayoutComponent;
