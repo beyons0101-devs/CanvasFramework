@@ -67,6 +67,8 @@ import LayoutComponent from '../features/LayoutComponent.js';
 import Grid from '../features/Grid.js';
 import Row from '../features/Row.js';
 import Column from '../features/Column.js';
+import Positioned from '../features/Positioned.js';
+import Stack from '../features/Stack.js';
 
 // Manager
 import ErrorHandler from '../manager/ErrorHandler.js';
@@ -1256,5 +1258,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
