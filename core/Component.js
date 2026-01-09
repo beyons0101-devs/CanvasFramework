@@ -84,6 +84,17 @@ class Component {
     this.markDirty();
   }
 
+  setProps(newProps = {}) {
+    const changed = Object.keys(newProps).some(
+      key => this[key] !== newProps[key]
+    );
+
+    if (!changed) return;
+
+    Object.assign(this, newProps);
+    this._update(newProps);
+  }
+
   /**
    * Marque le composant pour redessin
    * Appelez cette méthode après avoir modifié une propriété
@@ -127,6 +138,7 @@ class Component {
 
 
 export default Component;
+
 
 
 
