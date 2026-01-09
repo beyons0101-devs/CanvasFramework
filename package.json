@@ -1,22 +1,28 @@
 {
-  "name": "canvas-framework",
-  "version": "2.0.0",
+  "name": "canvasframework",
+  "version": "0.3.6",
+  "description": "Canvas-based cross-platform UI framework (Material & Cupertino)",
   "type": "module",
-  "main": "index.js",
-  "description": "Framework Canvas pour créer des interfaces utilisateur mobiles (iOS/Material)",
-  "author": "BeyOns",
-  "license": "MIT",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "components",
+    "core",
+    "features",
+    "manager",
+    "layout",
+    "utils"
+  ],
   "keywords": [
     "canvas",
     "ui",
     "framework",
-    "mobile",
-    "ios",
     "material",
-    "components"
+    "cupertino",
+    "mobile"
   ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/beyons/canvas-framework"
-  }
+  "license": "MIT"
 }
