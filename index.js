@@ -31,6 +31,7 @@ export { default as Tabs } from './components/Tabs.js';
 export { default as Switch } from './components/Switch.js';
 export { default as ListItem } from './components/ListItem.js';
 export { default as List } from './components/List.js';
+export { default as VirtualList } from './components/VirtualList.js';
 export { default as BottomSheet } from './components/BottomSheet.js';
 export { default as ProgressBar } from './components/ProgressBar.js';
 export { default as RadioButton } from './components/RadioButton.js';
@@ -88,5 +89,6 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.3.4';
+
 
 
