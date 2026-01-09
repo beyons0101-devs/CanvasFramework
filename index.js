@@ -51,6 +51,7 @@ export { default as FileUpload } from './components/FileUpload.js';
 export { default as Table } from './components/Table.js';
 export { default as TreeView } from './components/TreeView.js';
 export { default as SearchInput } from './components/SearchInput.js';
+export { default as ImageCarousel } from './components/ImageCarousel.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -91,6 +92,7 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.3.4';
+
 
 
 
