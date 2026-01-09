@@ -163,8 +163,8 @@ class CanvasFramework {
 	this.fps = 0;
 	this._frames = 0;
 	this._lastFpsTime = performance.now();
-	this.showFps = false; // désactivé par défaut
-	this.debbug = false;
+	this.showFps = options.showFps || false; // false par défaut
+	this.debbug = options.debug || false; // false par défaut (et correction de la faute de frappe)
     // Worker pour multithreading
     this.worker = new Worker('./CanvasWorker.js', { type: 'module' });
     this.worker.onmessage = this.handleWorkerMessage.bind(this);
@@ -1262,12 +1262,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
-
-
-
-
-
-
