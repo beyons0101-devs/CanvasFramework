@@ -215,9 +215,8 @@ If the engine is slow → nothing can save it.
 ---
 
 ##  Exemples
-  - Exemple – Accordion
-  - Cas d’usage
-
+  # Exemple – Accordion
+  
 Afficher des sections d’informations extensibles (FAQ, paramètres, détails).
 ```
 import { Accordion } from './framework/index.js';
@@ -237,6 +236,120 @@ const accordion = new Accordion(app, {
 
 app.add(accordion);
 ```
+
+  # Button (Material / Cupertino auto)
+
+Action principale (submit, navigation, confirmation).
+```
+import { Button } from './framework/index.js';
+
+const button = new Button(app, {
+  x: 16,
+  y: 300,
+  width: app.width - 32,
+  height: 48,
+  text: 'Continuer',
+  elevation: 4
+});
+
+button.onClick = () => {
+  console.log('Bouton cliqué');
+};
+
+app.add(button);
+```
+
+  # Exemple – BottomNavigationBar
+
+Navigation principale d’application mobile.
+```
+import { BottomNavigationBar } from './framework/index.js';
+
+const bottomNav = new BottomNavigationBar(app, {
+  items: [
+    { icon: 'home', label: 'Accueil' },
+    { icon: 'search', label: 'Recherche' },
+    { icon: 'favorite', label: 'Favoris' },
+    { icon: 'person', label: 'Profil' }
+  ],
+  onChange: (index, item) => {
+    console.log('Onglet sélectionné:', index, item.label);
+  }
+});
+
+app.add(bottomNav);
+```
+
+  # Exemple – Dialog (alert / confirmation)
+
+Alerte, confirmation, choix utilisateur.
+```
+import { Dialog, Button } from './framework/index.js';
+
+const showDialogBtn = new Button(app, {
+  x: 16,
+  y: 380,
+  width: app.width - 32,
+  height: 48,
+  text: 'Supprimer le compte'
+});
+
+showDialogBtn.onClick = () => {
+  const dialog = new Dialog(app, {
+    title: 'Confirmation',
+    message: 'Êtes-vous sûr de vouloir supprimer votre compte ? Cette action est irréversible.',
+    buttons: ['Annuler', 'Supprimer'],
+    onButtonClick: (index, label) => {
+      console.log('Bouton dialog:', label);
+    }
+  });
+
+  app.add(dialog);
+  dialog.show();
+};
+
+app.add(showDialogBtn);
+```
+
+
+  # Exemple – Combinaison réelle (mini écran)
+
+```
+app.add(new Text(app, {
+  x: 16,
+  y: 24,
+  text: 'Paramètres',
+  fontSize: 22,
+  bold: true
+}));
+
+// Accordéon
+app.add(new Accordion(app, {
+  x: 16,
+  y: 80,
+  width: app.width - 32,
+  title: 'Sécurité',
+  content: 'Changez votre mot de passe, activez la double authentification.'
+}));
+
+// Bouton
+app.add(new Button(app, {
+  x: 16,
+  y: 240,
+  width: app.width - 32,
+  height: 48,
+  text: 'Déconnexion'
+}));
+
+// Navigation
+app.add(new BottomNavigationBar(app, {
+  items: [
+    { icon: 'home', label: 'Accueil' },
+    { icon: 'settings', label: 'Paramètres' }
+  ]
+}));
+```
+
 ## 📄 License
 
 MIT
