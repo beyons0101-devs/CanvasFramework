@@ -24,6 +24,7 @@ import Tabs from '../components/Tabs.js';
 import Switch from '../components/Switch.js';
 import ListItem from '../components/ListItem.js';
 import List from '../components/List.js';
+import VirtualList from '../components/VirtualList.js';
 import BottomSheet from '../components/BottomSheet.js';
 import ProgressBar from '../components/ProgressBar.js';
 import RadioButton from '../components/RadioButton.js';
@@ -1258,6 +1259,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
