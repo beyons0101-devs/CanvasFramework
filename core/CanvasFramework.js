@@ -949,6 +949,9 @@ class CanvasFramework {
     this.width = window.innerWidth;
     this.height = window.innerHeight;
     this.setupCanvas();
+	for (const comp of this.components) {
+      comp._resize(this.width, this.height);
+    }
   }
 
   add(component) {
@@ -1253,4 +1256,5 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
