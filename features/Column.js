@@ -1,4 +1,4 @@
-import LayoutComponent, { makeConstraints } from './LayoutComponent.js';
+import LayoutComponent from './LayoutComponent.js';
 
 class Column extends LayoutComponent {
   constructor(framework, options = {}) {
@@ -7,15 +7,10 @@ class Column extends LayoutComponent {
   }
 
   layout() {
-    const constraints = makeConstraints(this);
     let y = this.y;
     let maxWidth = 0;
 
     for (const child of this.children) {
-      const childSize = child.measure(constraints);
-      child.width = childSize.width;
-      child.height = childSize.height;
-
       child.y = y;
 
       if (this.align === 'center') {
@@ -35,6 +30,13 @@ class Column extends LayoutComponent {
 
     this.height = y - this.y - this.spacing;
     if (!this.width) this.width = maxWidth;
+
+    // Layout récursif automatique des enfants
+    for (const child of this.children) {
+      if (typeof child.layoutRecursive === 'function') {
+        child.layoutRecursive();
+      }
+    }
   }
 }
 
