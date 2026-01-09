@@ -8,6 +8,11 @@
 
 ---
 
+# Installation
+npm install canvasframework
+
+---
+
 ## 🚀 Overview
 
 **Canvas UI Engine** is a **low-level UI engine** that renders the entire user interface using **Canvas 2D or WebGL**, instead of the DOM.
