@@ -953,12 +953,16 @@ class CanvasFramework {
 
   add(component) {
     this.components.push(component);
+	component._mount();
     return component;
   }
 
   remove(component) {
     const index = this.components.indexOf(component);
-    if (index > -1) this.components.splice(index, 1);
+    if (index > -1) {
+		component._unmount();
+		this.components.splice(index, 1);
+	}
   }
   
   markComponentDirty(component) {
@@ -1249,3 +1253,4 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
