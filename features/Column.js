@@ -1,18 +1,21 @@
-import LayoutComponent from './LayoutComponent.js';
-import { makeConstraints } from './LayoutComponent.js';
+import LayoutComponent, { makeConstraints } from './LayoutComponent.js';
 
 class Column extends LayoutComponent {
   constructor(framework, options = {}) {
     super(framework, options);
-    this.align = options.align || 'start'; 
-    // start | center | end | stretch
+    this.align = options.align || 'start'; // start | center | end | stretch
   }
 
   layout() {
+    const constraints = makeConstraints(this);
     let y = this.y;
     let maxWidth = 0;
 
     for (const child of this.children) {
+      const childSize = child.measure(constraints);
+      child.width = childSize.width;
+      child.height = childSize.height;
+
       child.y = y;
 
       if (this.align === 'center') {
