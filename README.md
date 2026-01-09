@@ -350,6 +350,205 @@ app.add(new BottomNavigationBar(app, {
 }));
 ```
 
+  # Stack – superposition (équivalent Flutter Stack)
+
+Exemple : carte avec image + titre + bouton flottant
+
+```
+import Stack from './layout/Stack.js';
+import Text from './components/Text.js';
+import Button from './components/Button.js';
+import Image from './components/Image.js';
+
+const card = new Stack(app, {
+  x: 16,
+  y: 40,
+  width: app.width - 32,
+  height: 200
+});
+
+card.add(new Image(app, {
+  src: 'cover.jpg',
+  width: card.width,
+  height: 200
+}));
+
+card.add(new Text(app, {
+  x: 16,
+  y: 16,
+  text: 'Titre de la carte',
+  fontSize: 20,
+  color: '#FFFFFF'
+}));
+
+card.add(new Button(app, {
+  x: card.width - 72,
+  y: card.height - 56,
+  width: 56,
+  height: 56,
+  text: '+'
+}));
+
+app.add(card);
+card.layoutRecursive();
+```
+
+  # Column – layout vertical (Flutter Column)
+
+Exemple : écran de paramètres
+
+```
+import Column from './layout/Column.js';
+import Text from './components/Text.js';
+import Button from './components/Button.js';
+
+const column = new Column(app, {
+  x: 16,
+  y: 40,
+  width: app.width - 32,
+  spacing: 12,
+  align: 'stretch'
+});
+
+column.add(new Text(app, {
+  text: 'Paramètres',
+  fontSize: 22,
+  height: 32
+}));
+
+column.add(new Button(app, {
+  height: 48,
+  text: 'Compte'
+}));
+
+column.add(new Button(app, {
+  height: 48,
+  text: 'Sécurité'
+}));
+
+column.add(new Button(app, {
+  height: 48,
+  text: 'Notifications'
+}));
+
+app.add(column);
+column.layout();
+```
+
+  # Row – layout horizontal (Flutter Row)
+
+Exemple : barre d’actions
+
+```
+import Row from './layout/Row.js';
+import Button from './components/Button.js';
+
+const actions = new Row(app, {
+  x: 16,
+  y: 120,
+  height: 48,
+  spacing: 12,
+  align: 'center'
+});
+
+actions.add(new Button(app, {
+  width: 100,
+  height: 40,
+  text: 'Annuler'
+}));
+
+actions.add(new Button(app, {
+  width: 120,
+  height: 40,
+  text: 'Valider'
+}));
+
+app.add(actions);
+actions.layout();
+```
+
+  # Grid – grille adaptative (Flutter GridView.count)
+
+Exemple : grille d’options
+
+```
+import Grid from './layout/Grid.js';
+import Card from './components/Card.js';
+
+const grid = new Grid(app, {
+  x: 16,
+  y: 200,
+  width: app.width - 32,
+  columns: 3,
+  spacing: 12
+});
+
+for (let i = 0; i < 6; i++) {
+  grid.add(new Card(app, {
+    height: 100,
+    title: `Item ${i + 1}`
+  }));
+}
+
+app.add(grid);
+grid.layout();
+```
+
+  # Composition réelle (comme Flutter 😏)
+
+```
+const screen = new Column(app, {
+  x: 0,
+  y: 0,
+  width: app.width,
+  spacing: 24,
+  align: 'stretch'
+});
+
+// Header
+screen.add(new Text(app, {
+  text: 'Accueil',
+  fontSize: 24,
+  height: 40
+}));
+
+// Hero
+const hero = new Stack(app, {
+  width: app.width,
+  height: 180
+});
+
+hero.add(new Image(app, {
+  src: 'hero.jpg',
+  width: app.width,
+  height: 180
+}));
+
+hero.add(new Text(app, {
+  x: 16,
+  y: 120,
+  text: 'Bienvenue',
+  fontSize: 20,
+  color: '#FFF'
+}));
+
+screen.add(hero);
+
+// Actions
+const row = new Row(app, {
+  height: 48,
+  spacing: 12
+});
+
+row.add(new Button(app, { width: 120, height: 40, text: 'Explorer' }));
+row.add(new Button(app, { width: 120, height: 40, text: 'Profil' }));
+
+screen.add(row);
+
+app.add(screen);
+screen.layoutRecursive();
+```
+
 ## 📄 License
 
 MIT
