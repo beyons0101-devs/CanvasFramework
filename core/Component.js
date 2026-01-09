@@ -40,6 +40,48 @@ class Component {
     
     // Système dirty simple (optionnel)
     this._dirty = true;
+    
+    // Lifecycle
+    this._mounted = false;
+
+    // Pour détecter les updates
+    this._prevProps = { ...options };
+  }
+
+  /* =======================
+     LIFECYCLE HOOKS
+     ======================= */
+
+  onMount() {}
+  onUnmount() {}
+  onUpdate(prevProps) {}
+  onResize(width, height) {}
+
+  /* ======================= */
+
+  _mount() {
+    if (!this._mounted) {
+      this._mounted = true;
+      this.onMount();
+    }
+  }
+
+  _unmount() {
+    if (this._mounted) {
+      this.onUnmount();
+      this._mounted = false;
+    }
+  }
+
+  _update(newProps) {
+    this.onUpdate(this._prevProps);
+    this._prevProps = { ...newProps };
+    this.markDirty();
+  }
+
+  _resize(width, height) {
+    this.onResize(width, height);
+    this.markDirty();
   }
 
   /**
@@ -85,6 +127,7 @@ class Component {
 
 
 export default Component;
+
 
 
 
