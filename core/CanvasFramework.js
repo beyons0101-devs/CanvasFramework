@@ -44,6 +44,7 @@ import FileUpload from '../components/FileUpload.js';
 import Table from '../components/Table.js';
 import TreeView from '../components/TreeView.js';
 import SearchInput from '../components/SearchInput.js';
+import ImageCarousel from '../components/ImageCarousel.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -1261,6 +1262,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
