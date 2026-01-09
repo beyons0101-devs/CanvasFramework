@@ -6,6 +6,7 @@ export { default as Component } from './core/Component.js';
 
 // Components
 export { default as Button } from './components/Button.js';
+export { default as SegmentedControl } from './components/SegmentedControl.js';
 export { default as Input } from './components/Input.js';
 export { default as Slider } from './components/Slider.js';
 export { default as Text } from './components/Text.js';
@@ -89,6 +90,7 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.3.4';
+
 
 
 
