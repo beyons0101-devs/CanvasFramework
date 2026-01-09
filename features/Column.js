@@ -1,4 +1,5 @@
 import LayoutComponent from './LayoutComponent.js';
+import { makeConstraints } from './LayoutComponent.js';
 
 class Column extends LayoutComponent {
   constructor(framework, options = {}) {
