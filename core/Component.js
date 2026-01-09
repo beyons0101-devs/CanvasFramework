@@ -95,6 +95,13 @@ class Component {
     this._update(newProps);
   }
 
+  measure(constraints) {
+    return {
+      width: this.width,
+      height: this.height
+    };
+  }
+
   /**
    * Marque le composant pour redessin
    * Appelez cette méthode après avoir modifié une propriété
@@ -138,6 +145,7 @@ class Component {
 
 
 export default Component;
+
 
 
 
