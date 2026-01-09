@@ -23,6 +23,7 @@ import Stepper from '../components/Stepper.js';
 import Accordion from '../components/Accordion.js';
 import Tabs from '../components/Tabs.js';
 import Switch from '../components/Switch.js';
+import SwipeableListItem from './components/SwipeableListItem.js';
 import ListItem from '../components/ListItem.js';
 import List from '../components/List.js';
 import VirtualList from '../components/VirtualList.js';
@@ -1260,6 +1261,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
