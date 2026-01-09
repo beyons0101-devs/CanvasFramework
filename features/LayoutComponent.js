@@ -32,3 +32,15 @@ class LayoutComponent extends Component {
 
   draw(ctx) {}
 }
+
+/* ==========================
+   Utilitaire pour layout
+   ========================== */
+export function makeConstraints(component) {
+  return {
+    minWidth: 0,
+    minHeight: 0,
+    maxWidth: component.width || Infinity,
+    maxHeight: component.height || Infinity
+  };
+}
