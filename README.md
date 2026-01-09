@@ -214,6 +214,29 @@ If the engine is slow → nothing can save it.
 
 ---
 
+##  Exemples
+  - Exemple – Accordion
+  - Cas d’usage
+
+Afficher des sections d’informations extensibles (FAQ, paramètres, détails).
+```
+import { Accordion } from './framework/index.js';
+
+const accordion = new Accordion(app, {
+  x: 16,
+  y: 80,
+  width: app.width - 32,
+  title: 'Informations du compte',
+  icon: 'ℹ️',
+  content: 'Votre compte vous permet de gérer vos préférences, votre sécurité et vos informations personnelles.',
+  expanded: false,
+  onToggle: (expanded) => {
+    console.log('Accordion ouvert ?', expanded);
+  }
+});
+
+app.add(accordion);
+```
 ## 📄 License
 
 MIT
