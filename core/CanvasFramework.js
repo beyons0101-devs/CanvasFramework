@@ -1,4 +1,5 @@
 import Button from '../components/Button.js';
+import SegmentedControl from '../components/SegmentedControl.js';
 import Input from '../components/Input.js';
 import Slider from '../components/Slider.js';
 import Text from '../components/Text.js';
@@ -1259,6 +1260,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
