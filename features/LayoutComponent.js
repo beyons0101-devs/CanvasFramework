@@ -1,5 +1,14 @@
 import Component from '../core/Component.js';
 
+export function makeConstraints(component) {
+  return {
+    minWidth: 0,
+    minHeight: 0,
+    maxWidth: component.width || Infinity,
+    maxHeight: component.height || Infinity
+  };
+}
+
 class LayoutComponent extends Component {
   constructor(framework, options = {}) {
     super(framework, options);
@@ -12,35 +21,23 @@ class LayoutComponent extends Component {
     return child;
   }
 
-  layout(constraints = makeConstraints(this)) {
-    for (const child of this.children) {
-      const size = child.measure(constraints);
-      child.width = size.width;
-      child.height = size.height;
+  layout() {
+    // À implémenter par Grid / Row / Column
+  }
 
-      // layout récursif
-      if (child.layout) {
-        child.layout({
-          minWidth: 0,
-          minHeight: 0,
-          maxWidth: child.width,
-          maxHeight: child.height
-        });
+  // Layout récursif automatique
+  layoutRecursive() {
+    this.layout(); // calcul des positions/taille des enfants directs
+    for (const child of this.children) {
+      if (typeof child.layoutRecursive === 'function') {
+        child.layoutRecursive(); // appel récursif
       }
     }
   }
 
-  draw(ctx) {}
+  draw(ctx) {
+    // Ne dessine rien par défaut, chaque enfant dessinera le sien
+  }
 }
 
-/* ==========================
-   Utilitaire pour layout
-   ========================== */
-export function makeConstraints(component) {
-  return {
-    minWidth: 0,
-    minHeight: 0,
-    maxWidth: component.width || Infinity,
-    maxHeight: component.height || Infinity
-  };
-}
+export default LayoutComponent;
