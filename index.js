@@ -74,6 +74,8 @@ export { default as LayoutComponent } from './features/LayoutComponent.js';
 export { default as Grid } from './features/Grid.js';
 export { default as Row } from './features/Row.js';
 export { default as Column } from './features/Column.js';
+export { default as Positioned } from './features/Positioned.js';
+export { default as Stack } from './features/Stack.js';
 
 // Manager
 export { default as ErrorHandler } from './manager/ErrorHandler.js';
@@ -86,4 +88,5 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.3.4';
+
 
