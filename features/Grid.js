@@ -1,4 +1,4 @@
-import LayoutComponent, { makeConstraints } from './LayoutComponent.js';
+import LayoutComponent from './LayoutComponent.js';
 
 class Grid extends LayoutComponent {
   constructor(framework, options = {}) {
@@ -7,9 +7,8 @@ class Grid extends LayoutComponent {
   }
 
   layout() {
-    const constraints = makeConstraints(this);
     const cellWidth =
-      (constraints.maxWidth - this.spacing * (this.columns - 1)) / this.columns;
+      (this.width - this.spacing * (this.columns - 1)) / this.columns;
 
     let x = this.x;
     let y = this.y;
@@ -17,13 +16,9 @@ class Grid extends LayoutComponent {
     let rowHeight = 0;
 
     for (const child of this.children) {
-      // Mesure de l'enfant selon la contrainte de largeur
-      const childSize = child.measure({ ...constraints, maxWidth: cellWidth });
-      child.width = childSize.width;
-      child.height = childSize.height;
-
       child.x = x;
       child.y = y;
+      child.width = cellWidth;
 
       rowHeight = Math.max(rowHeight, child.height);
 
@@ -39,6 +34,13 @@ class Grid extends LayoutComponent {
     }
 
     this.height = y - this.y + rowHeight;
+
+    // Layout récursif automatique des enfants
+    for (const child of this.children) {
+      if (typeof child.layoutRecursive === 'function') {
+        child.layoutRecursive();
+      }
+    }
   }
 }
 
