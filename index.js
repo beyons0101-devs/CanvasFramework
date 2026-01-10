@@ -13,6 +13,8 @@ export { default as Text } from './components/Text.js';
 export { default as View } from './components/View.js';
 export { default as Card } from './components/Card.js';
 export { default as FAB } from './components/FAB.js';
+export { default as SpeedDialFAB } from './components/SpeedDialFAB.js';
+export { default as MorphingFAB } from './components/MorphingFAB.js';
 export { default as CircularProgress } from './components/CircularProgress.js';
 export { default as ImageComponent } from './components/ImageComponent.js';
 export { default as DatePicker } from './components/DatePicker.js';
@@ -91,11 +93,4 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.6';
-
-
-
-
-
-
-
+export const VERSION = '0.3.9';
