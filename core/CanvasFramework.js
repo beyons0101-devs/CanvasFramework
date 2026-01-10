@@ -6,6 +6,8 @@ import Text from '../components/Text.js';
 import View from '../components/View.js';
 import Card from '../components/Card.js';
 import FAB from '../components/FAB.js';
+import SpeedDialFAB from '../components/SpeedDialFAB.js';
+import MorphingFAB from '../components/MorphingFAB.js';
 import CircularProgress from '../components/CircularProgress.js';
 import ImageComponent from '../components/ImageComponent.js';
 import DatePicker from '../components/DatePicker.js';
