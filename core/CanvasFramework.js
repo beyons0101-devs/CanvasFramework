@@ -952,12 +952,18 @@ class CanvasFramework {
   }
 
   handleResize() {
-    this.width = window.innerWidth;
-    this.height = window.innerHeight;
-    this.setupCanvas();
-	for (const comp of this.components) {
-      comp._resize(this.width, this.height);
-    }
+    // Pour WebGL, NE PAS redimensionner automatiquement
+    if (!this.useWebGL) {
+      this.width = window.innerWidth;
+      this.height = window.innerHeight;
+      this.setupCanvas();
+    
+      for (const comp of this.components) {
+        if (comp._resize) {
+          comp._resize(this.width, this.height);
+        }
+      }
+    } 
   }
 
   add(component) {
