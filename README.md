@@ -1,7 +1,7 @@
  <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/feae14e9-8d68-41f9-9e33-e444f1a6f360" />
 
 
-# Canvas UI Engine (working name)
+# Canvas UI Engine (UI engine inspired by Flutter, built for the Web)
 
 > **Canvas-based UI Engine for Mobile & Embedded Apps**  
 > A high-performance UI engine rendered with Canvas/WebGL, running inside a WebView runtime (Capacitor / Cordova), without DOM, HTML or CSS.
