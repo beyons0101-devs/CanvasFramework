@@ -1,17 +1,13 @@
 import Component from '../core/Component.js';
 
 /**
- * Bouton cliquable
+ * Bouton cliquable avec variantes Material et Cupertino
  * @class
  * @extends Component
- * @property {string} text - Texte du bouton
- * @property {number} fontSize - Taille de la police
- * @property {string} platform - Plateforme
- * @property {string} bgColor - Couleur de fond
- * @property {string} textColor - Couleur du texte
- * @property {string} rippleColor - Couleur du ripple
- * @property {number} elevation - Élévation (ombre)
- * @property {Array} ripples - Effets ripple
+ * 
+ * Types Material: 'filled', 'outlined', 'text', 'elevated', 'tonal'
+ * Types Cupertino: 'filled', 'gray', 'tinted', 'bordered', 'plain'
+ * Shapes: 'rounded', 'square', 'pill' (très arrondi)
  */
 class Button extends Component {
   /**
@@ -20,33 +16,133 @@ class Button extends Component {
    * @param {Object} [options={}] - Options de configuration
    * @param {string} [options.text='Button'] - Texte
    * @param {number} [options.fontSize=16] - Taille de police
-   * @param {string} [options.bgColor] - Couleur de fond (auto selon platform)
-   * @param {string} [options.textColor] - Couleur du texte (auto selon platform)
-   * @param {number} [options.elevation=2] - Élévation (Material)
+   * @param {string} [options.type] - Type de bouton (auto selon platform)
+   * @param {string} [options.shape='rounded'] - Forme: 'rounded', 'square', 'pill'
+   * @param {string} [options.bgColor] - Couleur personnalisée
+   * @param {string} [options.textColor] - Couleur du texte personnalisée
+   * @param {number} [options.elevation=2] - Élévation (Material elevated)
    */
   constructor(framework, options = {}) {
     super(framework, options);
     this.text = options.text || 'Button';
     this.fontSize = options.fontSize || 16;
     this.platform = framework.platform;
+    this.shape = options.shape || 'rounded';
     
-    // Couleurs selon la plateforme
+    // Définir le type de bouton selon la plateforme
     if (this.platform === 'material') {
-      this.bgColor = options.bgColor || '#6200EE';
-      this.textColor = options.textColor || '#FFFFFF';
-      this.rippleColor = 'rgba(255, 255, 255, 0.3)';
-      this.elevation = options.elevation || 2;
+      this.type = options.type || 'filled';
+      this.setupMaterialStyle(options);
     } else {
-      this.bgColor = options.bgColor || '#007AFF';
-      this.textColor = options.textColor || '#FFFFFF';
-      this.borderRadius = 10;
+      this.type = options.type || 'filled';
+      this.setupCupertinoStyle(options);
     }
     
-    // Effet Ripple
+    // Effets ripple (Material uniquement)
     this.ripples = [];
     
-    // Bind des méthodes
+    // Bind
     this.onPress = this.handlePress.bind(this);
+  }
+  
+  /**
+   * Configure le style Material Design
+   * @private
+   */
+  setupMaterialStyle(options) {
+    const baseColor = options.bgColor || '#6200EE';
+    this.elevation = options.elevation || 2;
+    
+    switch (this.type) {
+      case 'filled':
+        this.bgColor = baseColor;
+        this.textColor = options.textColor || '#FFFFFF';
+        this.borderWidth = 0;
+        this.rippleColor = 'rgba(255, 255, 255, 0.3)';
+        break;
+        
+      case 'outlined':
+        this.bgColor = 'transparent';
+        this.textColor = options.textColor || baseColor;
+        this.borderColor = baseColor;
+        this.borderWidth = 1;
+        this.rippleColor = this.hexToRgba(baseColor, 0.2);
+        this.elevation = 0;
+        break;
+        
+      case 'text':
+        this.bgColor = 'transparent';
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        this.rippleColor = this.hexToRgba(baseColor, 0.2);
+        this.elevation = 0;
+        break;
+        
+      case 'elevated':
+        this.bgColor = options.bgColor || '#FFFFFF';
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        this.rippleColor = this.hexToRgba(baseColor, 0.2);
+        this.elevation = options.elevation || 4;
+        break;
+        
+      case 'tonal':
+        this.bgColor = this.hexToRgba(baseColor, 0.3);
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        this.rippleColor = this.hexToRgba(baseColor, 0.3);
+        this.elevation = 0;
+        break;
+    }
+  }
+  
+  /**
+   * Configure le style Cupertino (iOS)
+   * @private
+   */
+  setupCupertinoStyle(options) {
+    const baseColor = options.bgColor || '#007AFF';
+    
+    switch (this.type) {
+      case 'filled':
+        this.bgColor = baseColor;
+        this.textColor = options.textColor || '#FFFFFF';
+        this.borderWidth = 0;
+        break;
+        
+      case 'gray':
+        this.bgColor = 'rgba(120, 120, 128, 0.16)';
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        break;
+        
+      case 'tinted':
+        this.bgColor = this.hexToRgba(baseColor, 0.2);
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        break;
+        
+      case 'plain':
+        this.bgColor = 'transparent';
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        break;
+    }
+  }
+  
+  /**
+   * Retourne le rayon des coins selon la forme
+   * @returns {number} Rayon en pixels
+   * @private
+   */
+  getBorderRadius() {
+    switch (this.shape) {
+      case 'square':
+        return 0;
+      case 'rounded':
+      default:
+        return this.platform === 'material' ? 4 : 10;
+    }
   }
   
   /**
@@ -56,7 +152,6 @@ class Button extends Component {
    * @private
    */
   handlePress(x, y) {
-    // Créer un ripple au point de clic
     if (this.platform === 'material') {
       const adjustedY = y - this.framework.scrollOffset;
       this.ripples.push({
@@ -89,7 +184,6 @@ class Button extends Component {
         }
       }
       
-      // Nettoyer les ripples terminés
       this.ripples = this.ripples.filter(r => r.opacity > 0);
       
       if (hasActiveRipples) {
@@ -107,31 +201,44 @@ class Button extends Component {
   draw(ctx) {
     ctx.save();
     
-    if (this.platform === 'material') {
-      // Material Design
-      // Ombre (elevation)
-      if (this.elevation > 0 && !this.pressed) {
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-        ctx.shadowBlur = this.elevation * 2;
-        ctx.shadowOffsetY = this.elevation;
-      }
-      
+    const radius = this.getBorderRadius();
+    
+    // Ombre Material (elevated/filled)
+    if (this.platform === 'material' && this.elevation > 0 && !this.pressed) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = this.elevation * 2;
+      ctx.shadowOffsetY = this.elevation;
+    }
+    
+    // Background
+    if (this.bgColor !== 'transparent') {
       ctx.fillStyle = this.pressed ? this.darkenColor(this.bgColor) : this.bgColor;
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, 4);
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.fill();
-      
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = 0;
-      ctx.shadowOffsetY = 0;
-      
-      // Clipping pour les ripples
+    }
+    
+    // Réinitialiser l'ombre
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    
+    // Bordure
+    if (this.borderWidth > 0) {
+      ctx.strokeStyle = this.borderColor;
+      ctx.lineWidth = this.borderWidth;
+      ctx.beginPath();
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      ctx.stroke();
+    }
+    
+    // Ripple effect (Material)
+    if (this.platform === 'material') {
       ctx.save();
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, 4);
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.clip();
       
-      // Dessiner les ripples
       for (let ripple of this.ripples) {
         ctx.globalAlpha = ripple.opacity;
         ctx.fillStyle = this.rippleColor;
@@ -141,17 +248,20 @@ class Button extends Component {
       }
       
       ctx.restore();
-      
-    } else {
-      // Cupertino (iOS)
-      ctx.fillStyle = this.pressed ? this.darkenColor(this.bgColor) : this.bgColor;
+    }
+    
+    // Effet pressed pour iOS (overlay sombre)
+    if (this.platform === 'cupertino' && this.pressed && this.bgColor !== 'transparent') {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.fill();
     }
     
     // Texte
-    ctx.fillStyle = this.textColor;
+    ctx.fillStyle = this.pressed && this.platform === 'cupertino' 
+      ? this.darkenColor(this.textColor) 
+      : this.textColor;
     ctx.font = `${this.fontSize}px -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -162,15 +272,14 @@ class Button extends Component {
 
   /**
    * Dessine un rectangle avec coins arrondis
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   * @param {number} x - Position X
-   * @param {number} y - Position Y
-   * @param {number} width - Largeur
-   * @param {number} height - Hauteur
-   * @param {number} radius - Rayon des coins
    * @private
    */
   roundRect(ctx, x, y, width, height, radius) {
+    if (radius === 0) {
+      ctx.rect(x, y, width, height);
+      return;
+    }
+    
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
     ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
@@ -184,19 +293,24 @@ class Button extends Component {
 
   /**
    * Assombrit une couleur
-   * @param {string} color - Couleur hexadécimale
-   * @returns {string} Couleur assombrie
    * @private
    */
   darkenColor(color) {
+    if (color === 'transparent') return 'rgba(0, 0, 0, 0.1)';
+    
+    if (color.startsWith('rgba') || color.startsWith('rgb')) {
+      return color.replace(/[\d.]+\)$/g, match => {
+        const val = parseFloat(match);
+        return `${Math.max(0, val - 0.1)})`;
+      });
+    }
+    
     const rgb = this.hexToRgb(color);
     return `rgb(${Math.max(0, rgb.r - 30)}, ${Math.max(0, rgb.g - 30)}, ${Math.max(0, rgb.b - 30)})`;
   }
 
   /**
-   * Convertit une couleur hex en RGB
-   * @param {string} hex - Couleur hexadécimale
-   * @returns {{r: number, g: number, b: number}} Objet RGB
+   * Convertit hex en RGB
    * @private
    */
   hexToRgb(hex) {
@@ -209,10 +323,16 @@ class Button extends Component {
   }
 
   /**
+   * Convertit hex en RGBA avec alpha
+   * @private
+   */
+  hexToRgba(hex, alpha) {
+    const rgb = this.hexToRgb(hex);
+    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+  }
+
+  /**
    * Vérifie si un point est dans les limites
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans le bouton
    */
   isPointInside(x, y) {
     return x >= this.x && 
