@@ -9,14 +9,14 @@
 ---
 
 # Installation
-npm install canvasframework
-npm install -D vite
+> npm install canvasframework
+> npm install -D vite
 
 # add in package.json
 "scripts": {
-  "dev": "vite",
-  "build": "vite build"
-}
+  >"dev": "vite",
+  >"build": "vite build"
+>}
 
 # launch
 npm run dev
