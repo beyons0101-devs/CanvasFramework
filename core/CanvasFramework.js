@@ -47,6 +47,8 @@ import Table from '../components/Table.js';
 import TreeView from '../components/TreeView.js';
 import SearchInput from '../components/SearchInput.js';
 import ImageCarousel from '../components/ImageCarousel.js';
+import PasswordInput from '../components/PasswordInput.js';
+import InputTags from '../components/InputTags.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -868,9 +870,9 @@ class CanvasFramework {
                     if (child.pressed) {
                       child.pressed = false;
                       
-                      if (child instanceof Input) {
+                      if (child instanceof Input || child instanceof PasswordInput || child instanceof InputTags) {
                         for (let other of this.components) {
-                          if (other instanceof Input && other !== child && other.focused) {
+                          if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags && other !== child && other.focused) {
                             other.focused = false;
                             other.cursorVisible = false;
                             if (other.onBlur) other.onBlur();
@@ -914,9 +916,9 @@ class CanvasFramework {
               if (comp.pressed) {
                 comp.pressed = false;
                 
-                if (comp instanceof Input) {
+                if (comp instanceof Input || comp instanceof PasswordInput || comp instanceof InputTags) {
                   for (let other of this.components) {
-                    if (other instanceof Input && other !== comp && other.focused) {
+                    if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags && other !== comp && other.focused) {
                       other.focused = false;
                       other.cursorVisible = false;
                       if (other.onBlur) other.onBlur();
