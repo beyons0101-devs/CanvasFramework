@@ -49,6 +49,7 @@ import SearchInput from '../components/SearchInput.js';
 import ImageCarousel from '../components/ImageCarousel.js';
 import PasswordInput from '../components/PasswordInput.js';
 import InputTags from '../components/InputTags.js';
+import InputDatalist from '../components/InputDatalist.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -870,9 +871,9 @@ class CanvasFramework {
                     if (child.pressed) {
                       child.pressed = false;
                       
-                      if (child instanceof Input || child instanceof PasswordInput || child instanceof InputTags) {
+                      if (child instanceof Input || child instanceof PasswordInput || child instanceof InputTags || child instanceof InputDatalist) {
                         for (let other of this.components) {
-                          if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags && other !== child && other.focused) {
+                          if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags || other instanceof InputDatalist && other !== child && other.focused) {
                             other.focused = false;
                             other.cursorVisible = false;
                             if (other.onBlur) other.onBlur();
@@ -916,9 +917,9 @@ class CanvasFramework {
               if (comp.pressed) {
                 comp.pressed = false;
                 
-                if (comp instanceof Input || comp instanceof PasswordInput || comp instanceof InputTags) {
+                if (comp instanceof Input || comp instanceof PasswordInput || comp instanceof InputTags || comp instanceof InputDatalist) {
                   for (let other of this.components) {
-                    if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags && other !== comp && other.focused) {
+                    if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags || other instanceof InputDatalist && other !== comp && other.focused) {
                       other.focused = false;
                       other.cursorVisible = false;
                       if (other.onBlur) other.onBlur();
