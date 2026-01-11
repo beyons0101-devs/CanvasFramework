@@ -1,15 +1,9 @@
 import Component from '../core/Component.js';
+
 /**
- * Barre de navigation inférieure
+ * Barre de navigation inférieure (Material & Cupertino)
  * @class
  * @extends Component
- * @property {Array} items - Items de navigation
- * @property {number} selectedIndex - Index sélectionné
- * @property {Function} onChange - Callback au changement
- * @property {string} platform - Plateforme
- * @property {string} bgColor - Couleur de fond
- * @property {string} selectedColor - Couleur sélectionnée
- * @property {string} unselectedColor - Couleur non sélectionnée
  */
 class BottomNavigationBar extends Component {
   /**
@@ -19,45 +13,106 @@ class BottomNavigationBar extends Component {
    * @param {Array} [options.items=[]] - Items [{icon, label}]
    * @param {number} [options.selectedIndex=0] - Index sélectionné
    * @param {Function} [options.onChange] - Callback au changement
-   * @param {number} [options.height] - Hauteur (auto selon platform)
-   * @param {string} [options.bgColor] - Couleur de fond (auto selon platform)
-   * @param {string} [options.selectedColor] - Couleur sélectionnée (auto selon platform)
-   * @param {string} [options.unselectedColor='#757575'] - Couleur non sélectionnée
+   * @param {number} [options.height] - Hauteur
+   * @param {string} [options.bgColor] - Couleur de fond
+   * @param {string} [options.selectedColor] - Couleur sélectionnée
+   * @param {string} [options.unselectedColor] - Couleur non sélectionnée
    */
   constructor(framework, options = {}) {
+    const height = options.height || (framework.platform === 'material' ? 56 : 50);
+    
     super(framework, {
       x: 0,
-      y: framework.height - (options.height || 56),
+      y: framework.height - height,
       width: framework.width,
-      height: options.height || 56,
+      height: height,
       ...options
     });
+    
     this.items = options.items || [];
     this.selectedIndex = options.selectedIndex || 0;
     this.onChange = options.onChange;
     this.platform = framework.platform;
-    this.bgColor = options.bgColor || '#FFFFFF';
-    this.selectedColor = options.selectedColor || (framework.platform === 'material' ? '#6200EE' : '#007AFF');
-    this.unselectedColor = options.unselectedColor || '#757575';
     
-    // IMPORTANT: Définir onPress pour que le framework l'appelle
+    // Couleurs selon la plateforme
+    if (this.platform === 'material') {
+      this.bgColor = options.bgColor || '#FFFFFF';
+      this.selectedColor = options.selectedColor || '#6200EE';
+      this.unselectedColor = options.unselectedColor || '#757575';
+      this.rippleColor = 'rgba(98, 0, 238, 0.2)';
+    } else {
+      // iOS : background transparent avec blur
+      this.bgColor = options.bgColor || 'rgba(248, 248, 248, 0.95)';
+      this.selectedColor = options.selectedColor || '#007AFF';
+      this.unselectedColor = options.unselectedColor || '#8E8E93';
+    }
+    
+    // Ripple effect (Material)
+    this.ripples = [];
+    
+    // Animation de l'indicateur (iOS)
+    this.indicatorX = 0;
+    this.targetIndicatorX = 0;
+    this.animatingIndicator = false;
+    
     this.onPress = this.handlePress.bind(this);
+    
+    // Initialiser la position de l'indicateur
+    this.updateIndicatorPosition();
+  }
+
+  /**
+   * Met à jour la position de l'indicateur iOS
+   * @private
+   */
+  updateIndicatorPosition() {
+    const itemWidth = this.width / this.items.length;
+    this.targetIndicatorX = this.selectedIndex * itemWidth;
+    
+    if (!this.animatingIndicator) {
+      this.indicatorX = this.targetIndicatorX;
+    }
+  }
+
+  /**
+   * Anime l'indicateur iOS
+   * @private
+   */
+  animateIndicator() {
+    this.animatingIndicator = true;
+    const animate = () => {
+      const diff = this.targetIndicatorX - this.indicatorX;
+      if (Math.abs(diff) > 0.5) {
+        this.indicatorX += diff * 0.2;
+        requestAnimationFrame(animate);
+      } else {
+        this.indicatorX = this.targetIndicatorX;
+        this.animatingIndicator = false;
+      }
+    };
+    animate();
   }
 
   /**
    * Dessine la barre de navigation
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
    */
   draw(ctx) {
     ctx.save();
     
-    // Ombre/bordure supérieure
+    // Background
+    ctx.fillStyle = this.bgColor;
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    
+    // Bordure/Ombre supérieure
     if (this.platform === 'material') {
       ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
       ctx.shadowBlur = 8;
       ctx.shadowOffsetY = -2;
+      ctx.fillRect(this.x, this.y, this.width, 1);
+      ctx.shadowColor = 'transparent';
     } else {
-      ctx.strokeStyle = '#C6C6C8';
+      // iOS : fine ligne de séparation
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
       ctx.lineWidth = 0.5;
       ctx.beginPath();
       ctx.moveTo(this.x, this.y);
@@ -65,107 +120,160 @@ class BottomNavigationBar extends Component {
       ctx.stroke();
     }
     
-    // Background
-    ctx.fillStyle = this.bgColor;
-    ctx.fillRect(this.x, this.y, this.width, this.height);
-    
-    ctx.shadowColor = 'transparent';
+    // Ripples (Material)
+    if (this.platform === 'material') {
+      this.drawRipples(ctx);
+    }
     
     // Items
     const itemWidth = this.width / this.items.length;
+    
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
       const itemX = this.x + i * itemWidth;
       const isSelected = i === this.selectedIndex;
       const color = isSelected ? this.selectedColor : this.unselectedColor;
       
+      // iOS : Indicateur de sélection (fond arrondi)
+      if (this.platform === 'cupertino' && isSelected) {
+        ctx.fillStyle = `${this.selectedColor}15`;
+        const indicatorWidth = 60;
+        const indicatorHeight = 32;
+        const indicatorX = itemX + itemWidth / 2 - indicatorWidth / 2;
+        const indicatorY = this.y + 6;
+        
+        ctx.beginPath();
+        this.roundRect(ctx, indicatorX, indicatorY, indicatorWidth, indicatorHeight, 16);
+        ctx.fill();
+      }
+      
       // Icône
-      this.drawIcon(ctx, item.icon, itemX + itemWidth / 2, this.y + 16, color);
+      const iconY = this.platform === 'material' ? this.y + 12 : this.y + 8;
+      this.drawIcon(ctx, item.icon, itemX + itemWidth / 2, iconY, color, isSelected);
       
       // Label
       ctx.fillStyle = color;
-      ctx.font = `${isSelected ? 'bold ' : ''}12px -apple-system, Roboto, sans-serif`;
+      const fontSize = this.platform === 'material' ? 12 : 10;
+      ctx.font = `${isSelected && this.platform === 'material' ? 'bold ' : ''}${fontSize}px -apple-system, Roboto, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText(item.label, itemX + itemWidth / 2, this.y + 36);
+      const labelY = this.platform === 'material' ? this.y + 34 : this.y + 30;
+      ctx.fillText(item.label, itemX + itemWidth / 2, labelY);
     }
     
     ctx.restore();
   }
 
   /**
-   * Dessine une icône
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   * @param {string} icon - Type d'icône
-   * @param {number} x - Position X
-   * @param {number} y - Position Y
-   * @param {string} color - Couleur
+   * Dessine les ripples (Material)
    * @private
    */
-  drawIcon(ctx, icon, x, y, color) {
+  drawRipples(ctx) {
+    for (let ripple of this.ripples) {
+      ctx.save();
+      ctx.globalAlpha = ripple.opacity;
+      ctx.fillStyle = this.rippleColor;
+      ctx.beginPath();
+      ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Anime les effets ripple
+   * @private
+   */
+  animateRipple() {
+    const animate = () => {
+      let hasActiveRipples = false;
+      
+      for (let ripple of this.ripples) {
+        if (ripple.radius < ripple.maxRadius) {
+          ripple.radius += ripple.maxRadius / 12;
+          hasActiveRipples = true;
+        }
+        
+        if (ripple.radius >= ripple.maxRadius * 0.5) {
+          ripple.opacity -= 0.05;
+        }
+      }
+      
+      this.ripples = this.ripples.filter(r => r.opacity > 0);
+      
+      if (hasActiveRipples) {
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    animate();
+  }
+
+  /**
+   * Dessine une icône
+   * @private
+   */
+  drawIcon(ctx, icon, x, y, color, isSelected) {
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = isSelected ? 2.5 : 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
     switch(icon) {
       case 'home':
         ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x - 10, y + 8);
-        ctx.lineTo(x - 10, y + 16);
-        ctx.lineTo(x + 10, y + 16);
-        ctx.lineTo(x + 10, y + 8);
+        ctx.moveTo(x, y + 2);
+        ctx.lineTo(x - 10, y + 10);
+        ctx.lineTo(x - 10, y + 18);
+        ctx.lineTo(x + 10, y + 18);
+        ctx.lineTo(x + 10, y + 10);
         ctx.closePath();
-        ctx.stroke();
+        if (isSelected) ctx.fill();
+        else ctx.stroke();
         break;
       
       case 'search':
         ctx.beginPath();
-        ctx.arc(x - 2, y + 4, 6, 0, Math.PI * 2);
+        ctx.arc(x - 2, y + 6, 7, 0, Math.PI * 2);
         ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(x + 3, y + 9);
-        ctx.lineTo(x + 8, y + 14);
+        ctx.moveTo(x + 4, y + 11);
+        ctx.lineTo(x + 9, y + 16);
         ctx.stroke();
         break;
       
       case 'favorite':
         ctx.beginPath();
-        ctx.moveTo(x, y + 2);
-        ctx.lineTo(x + 6, y + 14);
-        ctx.lineTo(x - 6, y + 14);
+        ctx.moveTo(x, y + 3);
+        for (let i = 0; i < 5; i++) {
+          const angle = (i * 4 * Math.PI / 5) - Math.PI / 2;
+          const radius = i % 2 === 0 ? 9 : 4;
+          ctx.lineTo(x + Math.cos(angle) * radius, y + 10 + Math.sin(angle) * radius);
+        }
         ctx.closePath();
-        ctx.beginPath();
-        ctx.moveTo(x, y + 14);
-        ctx.lineTo(x + 10, y + 6);
-        ctx.lineTo(x + 4, y + 6);
-        ctx.lineTo(x, y);
-        ctx.lineTo(x - 4, y + 6);
-        ctx.lineTo(x - 10, y + 6);
-        ctx.closePath();
-        ctx.fill();
+        if (isSelected) ctx.fill();
+        else ctx.stroke();
         break;
       
       case 'person':
         ctx.beginPath();
-        ctx.arc(x, y + 4, 5, 0, Math.PI * 2);
+        ctx.arc(x, y + 6, 5, 0, Math.PI * 2);
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(x, y + 16, 8, Math.PI, 0, true);
+        ctx.arc(x, y + 20, 9, Math.PI, 0, true);
         ctx.stroke();
         break;
       
       case 'settings':
         ctx.beginPath();
-        ctx.arc(x, y + 8, 4, 0, Math.PI * 2);
+        ctx.arc(x, y + 10, 5, 0, Math.PI * 2);
         ctx.stroke();
         for (let i = 0; i < 4; i++) {
           const angle = (i * Math.PI / 2) - Math.PI / 4;
           ctx.beginPath();
-          ctx.moveTo(x + Math.cos(angle) * 6, y + 8 + Math.sin(angle) * 6);
-          ctx.lineTo(x + Math.cos(angle) * 10, y + 8 + Math.sin(angle) * 10);
+          ctx.moveTo(x + Math.cos(angle) * 7, y + 10 + Math.sin(angle) * 7);
+          ctx.lineTo(x + Math.cos(angle) * 11, y + 10 + Math.sin(angle) * 11);
           ctx.stroke();
         }
         break;
@@ -173,28 +281,57 @@ class BottomNavigationBar extends Component {
   }
 
   /**
+   * Dessine un rectangle arrondi
+   * @private
+   */
+  roundRect(ctx, x, y, width, height, radius) {
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + width - radius, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+    ctx.lineTo(x + width, y + height - radius);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+    ctx.lineTo(x + radius, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+  }
+
+  /**
    * Vérifie si un point est dans les limites
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans la barre
    */
   isPointInside(x, y) {
-     return y >= this.y && y <= this.y + this.height;
+    return y >= this.y && y <= this.y + this.height;
   }
 
   /**
    * Gère la pression (clic)
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
    * @private
    */
   handlePress(x, y) {
-    // Calculer quel item a été cliqué
     const itemWidth = this.width / this.items.length;
     const index = Math.floor(x / itemWidth);
     
     if (index >= 0 && index < this.items.length && index !== this.selectedIndex) {
+      // Ripple effect (Material)
+      if (this.platform === 'material') {
+        this.ripples.push({
+          x: (index + 0.5) * itemWidth,
+          y: this.y + this.height / 2,
+          radius: 0,
+          maxRadius: itemWidth / 2,
+          opacity: 1
+        });
+        this.animateRipple();
+      }
+      
       this.selectedIndex = index;
+      this.updateIndicatorPosition();
+      
+      // Animer l'indicateur (iOS)
+      if (this.platform === 'cupertino') {
+        this.animateIndicator();
+      }
+      
       if (this.onChange) {
         this.onChange(index, this.items[index]);
       }
