@@ -54,6 +54,8 @@ export { default as Table } from './components/Table.js';
 export { default as TreeView } from './components/TreeView.js';
 export { default as SearchInput } from './components/SearchInput.js';
 export { default as ImageCarousel } from './components/ImageCarousel.js';
+export { default as PasswordInput } from './components/PasswordInput.js';
+export { default as InputTags } from './components/InputTags.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -93,4 +95,4 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.9';
+export const VERSION = '0.4.0';
