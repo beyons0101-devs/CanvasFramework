@@ -150,10 +150,10 @@ class UIBuilder {
 
   mount(framework) {
     if (!this._tree) return;
-    this._mountNode(framework, this._tree);
+    this._mountNode(framework, this._tree, null);
   }
 
-  _mountNode(framework, node) {
+  _mountNode(framework, node, parent = null) {
     if (!node) return null;
 
     const ComponentClass = Components[node.type];
@@ -163,24 +163,27 @@ class UIBuilder {
     }
 
     const instance = new ComponentClass(framework, node.props);
-    framework.add(instance);
 
+    // ✅ Ajouter au framework UNIQUEMENT si ce n'est pas un enfant de Card
+    const isChildOfCard = parent && parent.constructor?.name === 'Card';
+    if (!isChildOfCard) {
+        framework.add(instance);
+    }
+
+    // ✅ Ajouter au parent si parent existe et supporte add
+    if (parent && typeof parent.add === 'function') {
+      parent.add(instance);
+    }
+
+    // Monter les enfants
     if (node.children && node.children.length > 0) {
-      // Handle children based on component type
-      if (instance.children) {
-        // Component has children array (like Card, View, Column, etc.)
-        node.children.forEach(child => {
-          const childInstance = this._mountNode(framework, child);
-          if (childInstance) instance.children.push(childInstance);
-        });
-      } else {
-        // Component doesn't support children
-        console.warn(`Component ${node.type} does not support children`);
-      }
+      node.children.forEach(child =>
+        this._mountNode(framework, child, instance)
+      );
     }
 
     return instance;
-  }
+  } 
 
   /* ============================
      ROOT
