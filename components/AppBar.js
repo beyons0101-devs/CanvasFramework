@@ -50,10 +50,90 @@ class AppBar extends Component {
     
     // Ripple effect (Material uniquement)
     this.ripples = [];
+    this.animationFrame = null;
+    this.lastAnimationTime = 0;
+    
+    // États pressed pour iOS
     this.leftPressed = false;
     this.rightPressed = false;
     
     this.onPress = this.handlePress.bind(this);
+  }
+
+  /**
+   * Démarrer l'animation des ripples
+   * @private
+   */
+  startRippleAnimation() {
+    const animate = (timestamp) => {
+      if (!this.lastAnimationTime) this.lastAnimationTime = timestamp;
+      const deltaTime = timestamp - this.lastAnimationTime;
+      this.lastAnimationTime = timestamp;
+
+      let needsUpdate = false;
+
+      // Mettre à jour chaque ripple
+      for (let i = this.ripples.length - 1; i >= 0; i--) {
+        const ripple = this.ripples[i];
+        
+        // Animer le rayon (expansion)
+        if (ripple.radius < ripple.maxRadius) {
+          ripple.radius += (ripple.maxRadius / 250) * deltaTime;
+          needsUpdate = true;
+        }
+
+        // Animer l'opacité (fade out) - commencer plus tôt
+        if (ripple.radius >= ripple.maxRadius * 0.4) {
+          ripple.opacity -= (0.003 * deltaTime);
+          if (ripple.opacity < 0) ripple.opacity = 0;
+          needsUpdate = true;
+        }
+
+        // Supprimer les ripples terminés
+        if (ripple.opacity <= 0 && ripple.radius >= ripple.maxRadius * 0.95) {
+          this.ripples.splice(i, 1);
+          needsUpdate = true;
+        }
+      }
+
+      // Redessiner si nécessaire
+      if (needsUpdate) {
+        this.requestRender();
+      }
+
+      // Continuer l'animation
+      if (this.ripples.length > 0) {
+        this.animationFrame = requestAnimationFrame(animate);
+      } else {
+        this.animationFrame = null;
+        this.lastAnimationTime = 0;
+      }
+    };
+
+    if (this.ripples.length > 0 && !this.animationFrame) {
+      this.animationFrame = requestAnimationFrame(animate);
+    }
+  }
+
+  /**
+   * Demander un redessin
+   * @private
+   */
+  requestRender() {
+    if (this.framework && this.framework.requestRender) {
+      this.framework.requestRender();
+    }
+  }
+
+  /**
+   * Nettoyer l'animation lors de la destruction
+   */
+  destroy() {
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
+    super.destroy();
   }
 
   /**
@@ -98,13 +178,13 @@ class AppBar extends Component {
       if (this.leftPressed && this.leftIcon) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
         ctx.beginPath();
-        ctx.arc(28, this.y + this.height / 2, 20, 0, Math.PI * 2);
+        ctx.arc(this.x + 28, this.y + this.height / 2, 20, 0, Math.PI * 2);
         ctx.fill();
       }
       if (this.rightPressed && this.rightIcon) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
         ctx.beginPath();
-        ctx.arc(this.width - 28, this.y + this.height / 2, 20, 0, Math.PI * 2);
+        ctx.arc(this.x + this.width - 28, this.y + this.height / 2, 20, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -112,7 +192,7 @@ class AppBar extends Component {
     // Titre
     ctx.fillStyle = this.textColor;
     const titleAlign = this.platform === 'material' && this.leftIcon ? 'left' : 'center';
-    const titleX = titleAlign === 'left' ? 72 : this.width / 2;
+    const titleX = titleAlign === 'left' ? this.x + 72 : this.x + this.width / 2;
     ctx.font = `${this.platform === 'material' ? 'bold ' : ''}20px -apple-system, Roboto, sans-serif`;
     ctx.textAlign = titleAlign;
     ctx.textBaseline = 'middle';
@@ -122,9 +202,9 @@ class AppBar extends Component {
     if (this.leftIcon) {
       const iconColor = this.platform === 'cupertino' ? '#007AFF' : this.textColor;
       if (this.leftIcon === 'menu') {
-        this.drawMenuIcon(ctx, 16, this.y + this.height / 2, iconColor);
+        this.drawMenuIcon(ctx, this.x + 16, this.y + this.height / 2, iconColor);
       } else if (this.leftIcon === 'back') {
-        this.drawBackIcon(ctx, 16, this.y + this.height / 2, iconColor);
+        this.drawBackIcon(ctx, this.x + 16, this.y + this.height / 2, iconColor);
       }
     }
     
@@ -132,9 +212,9 @@ class AppBar extends Component {
     if (this.rightIcon) {
       const iconColor = this.platform === 'cupertino' ? '#007AFF' : this.textColor;
       if (this.rightIcon === 'search') {
-        this.drawSearchIcon(ctx, this.width - 36, this.y + this.height / 2, iconColor);
+        this.drawSearchIcon(ctx, this.x + this.width - 36, this.y + this.height / 2, iconColor);
       } else if (this.rightIcon === 'more') {
-        this.drawMoreIcon(ctx, this.width - 36, this.y + this.height / 2, iconColor);
+        this.drawMoreIcon(ctx, this.x + this.width - 36, this.y + this.height / 2, iconColor);
       }
     }
     
@@ -155,35 +235,6 @@ class AppBar extends Component {
       ctx.fill();
       ctx.restore();
     }
-  }
-
-  /**
-   * Anime les effets ripple
-   * @private
-   */
-  animateRipple() {
-    const animate = () => {
-      let hasActiveRipples = false;
-      
-      for (let ripple of this.ripples) {
-        if (ripple.radius < ripple.maxRadius) {
-          ripple.radius += ripple.maxRadius / 15;
-          hasActiveRipples = true;
-        }
-        
-        if (ripple.radius >= ripple.maxRadius * 0.5) {
-          ripple.opacity -= 0.05;
-        }
-      }
-      
-      this.ripples = this.ripples.filter(r => r.opacity > 0);
-      
-      if (hasActiveRipples) {
-        requestAnimationFrame(animate);
-      }
-    };
-    
-    animate();
   }
 
   /**
@@ -253,10 +304,14 @@ class AppBar extends Component {
    * Vérifie si un point est dans les zones cliquables
    */
   isPointInside(x, y) {
-    if (y >= this.y && y <= this.y + this.height) {
-      if (this.leftIcon && x >= 0 && x <= 56) return true;
-      if (this.rightIcon && x >= this.width - 56 && x <= this.width) return true;
-    }
+    // Les coordonnées x, y sont absolues, on les compare avec nos coordonnées absolues
+    const inY = y >= this.y && y <= this.y + this.height;
+    
+    if (!inY) return false;
+    
+    if (this.leftIcon && x >= this.x && x <= this.x + 56) return true;
+    if (this.rightIcon && x >= this.x + this.width - 56 && x <= this.x + this.width) return true;
+    
     return false;
   }
 
@@ -269,46 +324,70 @@ class AppBar extends Component {
     
     if (adjustedY >= this.y && adjustedY <= this.y + this.height) {
       // Bouton gauche
-      if (this.leftIcon && x >= 0 && x <= 56) {
+      if (this.leftIcon && x >= this.x && x <= this.x + 56) {
         // Ripple effect (Material)
         if (this.platform === 'material') {
           this.ripples.push({
-            x: 28,
+            x: this.x + 28,
             y: this.y + this.height / 2,
             radius: 0,
             maxRadius: 28,
-            opacity: 1
+            opacity: 1,
+            createdAt: performance.now()
           });
-          this.animateRipple();
+          
+          // Démarrer l'animation si elle n'est pas en cours
+          if (!this.animationFrame) {
+            this.startRippleAnimation();
+          }
+          
+          // Forcer un redessin
+          this.requestRender();
         } else {
           // iOS pressed state
           this.leftPressed = true;
-          setTimeout(() => { this.leftPressed = false; }, 150);
+          setTimeout(() => { 
+            this.leftPressed = false;
+            this.requestRender();
+          }, 150);
         }
         
         if (this.onLeftClick) this.onLeftClick();
+        this.requestRender();
         return true;
       }
       
       // Bouton droit
-      if (this.rightIcon && x >= this.width - 56 && x <= this.width) {
+      if (this.rightIcon && x >= this.x + this.width - 56 && x <= this.x + this.width) {
         // Ripple effect (Material)
         if (this.platform === 'material') {
           this.ripples.push({
-            x: this.width - 28,
+            x: this.x + this.width - 28,
             y: this.y + this.height / 2,
             radius: 0,
             maxRadius: 28,
-            opacity: 1
+            opacity: 1,
+            createdAt: performance.now()
           });
-          this.animateRipple();
+          
+          // Démarrer l'animation si elle n'est pas en cours
+          if (!this.animationFrame) {
+            this.startRippleAnimation();
+          }
+          
+          // Forcer un redessin
+          this.requestRender();
         } else {
           // iOS pressed state
           this.rightPressed = true;
-          setTimeout(() => { this.rightPressed = false; }, 150);
+          setTimeout(() => { 
+            this.rightPressed = false;
+            this.requestRender();
+          }, 150);
         }
         
         if (this.onRightClick) this.onRightClick();
+        this.requestRender();
         return true;
       }
     }
