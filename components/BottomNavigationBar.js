@@ -49,6 +49,8 @@ class BottomNavigationBar extends Component {
     
     // Ripple effect (Material)
     this.ripples = [];
+    this.animationFrame = null;
+    this.lastAnimationTime = 0;
     
     // Animation de l'indicateur (iOS)
     this.indicatorX = 0;
@@ -59,6 +61,82 @@ class BottomNavigationBar extends Component {
     
     // Initialiser la position de l'indicateur
     this.updateIndicatorPosition();
+  }
+
+  /**
+   * Démarrer l'animation des ripples
+   * @private
+   */
+  startRippleAnimation() {
+    const animate = (timestamp) => {
+      if (!this.lastAnimationTime) this.lastAnimationTime = timestamp;
+      const deltaTime = timestamp - this.lastAnimationTime;
+      this.lastAnimationTime = timestamp;
+
+      let needsUpdate = false;
+
+      // Mettre à jour chaque ripple
+      for (let i = this.ripples.length - 1; i >= 0; i--) {
+        const ripple = this.ripples[i];
+        
+        // Animer le rayon (expansion)
+        if (ripple.radius < ripple.maxRadius) {
+          ripple.radius += (ripple.maxRadius / 300) * deltaTime;
+          needsUpdate = true;
+        }
+
+        // Animer l'opacité (fade out)
+        if (ripple.radius >= ripple.maxRadius * 0.4) {
+          ripple.opacity -= (0.003 * deltaTime);
+          if (ripple.opacity < 0) ripple.opacity = 0;
+          needsUpdate = true;
+        }
+
+        // Supprimer les ripples terminés
+        if (ripple.opacity <= 0 && ripple.radius >= ripple.maxRadius * 0.95) {
+          this.ripples.splice(i, 1);
+          needsUpdate = true;
+        }
+      }
+
+      // Redessiner si nécessaire
+      if (needsUpdate) {
+        this.requestRender();
+      }
+
+      // Continuer l'animation
+      if (this.ripples.length > 0) {
+        this.animationFrame = requestAnimationFrame(animate);
+      } else {
+        this.animationFrame = null;
+        this.lastAnimationTime = 0;
+      }
+    };
+
+    if (this.ripples.length > 0 && !this.animationFrame) {
+      this.animationFrame = requestAnimationFrame(animate);
+    }
+  }
+
+  /**
+   * Demander un redessin
+   * @private
+   */
+  requestRender() {
+    if (this.framework && this.framework.requestRender) {
+      this.framework.requestRender();
+    }
+  }
+
+  /**
+   * Nettoyer l'animation lors de la destruction
+   */
+  destroy() {
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
+    super.destroy();
   }
 
   /**
@@ -80,17 +158,30 @@ class BottomNavigationBar extends Component {
    */
   animateIndicator() {
     this.animatingIndicator = true;
-    const animate = () => {
-      const diff = this.targetIndicatorX - this.indicatorX;
-      if (Math.abs(diff) > 0.5) {
-        this.indicatorX += diff * 0.2;
+    const startTime = performance.now();
+    const duration = 300; // 300ms d'animation
+    const startX = this.indicatorX;
+    const endX = this.targetIndicatorX;
+
+    const animate = (currentTime) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function (easeOutCubic)
+      const easeProgress = 1 - Math.pow(1 - progress, 3);
+      this.indicatorX = startX + (endX - startX) * easeProgress;
+
+      if (progress < 1) {
         requestAnimationFrame(animate);
+        this.requestRender();
       } else {
-        this.indicatorX = this.targetIndicatorX;
+        this.indicatorX = endX;
         this.animatingIndicator = false;
+        this.requestRender();
       }
     };
-    animate();
+
+    requestAnimationFrame(animate);
   }
 
   /**
@@ -118,11 +209,6 @@ class BottomNavigationBar extends Component {
       ctx.moveTo(this.x, this.y);
       ctx.lineTo(this.x + this.width, this.y);
       ctx.stroke();
-    }
-    
-    // Ripples (Material)
-    if (this.platform === 'material') {
-      this.drawRipples(ctx);
     }
     
     // Items
@@ -161,6 +247,11 @@ class BottomNavigationBar extends Component {
       ctx.fillText(item.label, itemX + itemWidth / 2, labelY);
     }
     
+    // Ripples (Material) - DESSINER APRÈS LES ÉLÉMENTS
+    if (this.platform === 'material') {
+      this.drawRipples(ctx);
+    }
+    
     ctx.restore();
   }
 
@@ -169,44 +260,24 @@ class BottomNavigationBar extends Component {
    * @private
    */
   drawRipples(ctx) {
+    // Sauvegarder le contexte
+    ctx.save();
+    
+    // Créer un masque de clipping pour limiter les ripples à la barre
+    ctx.beginPath();
+    ctx.rect(this.x, this.y, this.width, this.height);
+    ctx.clip();
+    
     for (let ripple of this.ripples) {
-      ctx.save();
       ctx.globalAlpha = ripple.opacity;
       ctx.fillStyle = this.rippleColor;
       ctx.beginPath();
       ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
     }
-  }
-
-  /**
-   * Anime les effets ripple
-   * @private
-   */
-  animateRipple() {
-    const animate = () => {
-      let hasActiveRipples = false;
-      
-      for (let ripple of this.ripples) {
-        if (ripple.radius < ripple.maxRadius) {
-          ripple.radius += ripple.maxRadius / 12;
-          hasActiveRipples = true;
-        }
-        
-        if (ripple.radius >= ripple.maxRadius * 0.5) {
-          ripple.opacity -= 0.05;
-        }
-      }
-      
-      this.ripples = this.ripples.filter(r => r.opacity > 0);
-      
-      if (hasActiveRipples) {
-        requestAnimationFrame(animate);
-      }
-    };
     
-    animate();
+    // Restaurer le contexte
+    ctx.restore();
   }
 
   /**
@@ -308,32 +379,52 @@ class BottomNavigationBar extends Component {
    * @private
    */
   handlePress(x, y) {
-    const itemWidth = this.width / this.items.length;
-    const index = Math.floor(x / itemWidth);
+    // Convertir les coordonnées absolues en coordonnées relatives à la barre
+    const relativeX = x - this.x;
+    const relativeY = y - this.y;
     
-    if (index >= 0 && index < this.items.length && index !== this.selectedIndex) {
-      // Ripple effect (Material)
-      if (this.platform === 'material') {
-        this.ripples.push({
-          x: (index + 0.5) * itemWidth,
-          y: this.y + this.height / 2,
-          radius: 0,
-          maxRadius: itemWidth / 2,
-          opacity: 1
-        });
-        this.animateRipple();
-      }
+    // Vérifier si on est dans la barre
+    if (relativeY >= 0 && relativeY <= this.height) {
+      const itemWidth = this.width / this.items.length;
+      const index = Math.floor(relativeX / itemWidth);
       
-      this.selectedIndex = index;
-      this.updateIndicatorPosition();
-      
-      // Animer l'indicateur (iOS)
-      if (this.platform === 'cupertino') {
-        this.animateIndicator();
-      }
-      
-      if (this.onChange) {
-        this.onChange(index, this.items[index]);
+      if (index >= 0 && index < this.items.length && index !== this.selectedIndex) {
+        // Ripple effect (Material)
+        if (this.platform === 'material') {
+          // Calculer la taille maximale du ripple (ne pas dépasser la hauteur de la barre)
+          const maxRippleRadius = Math.min(itemWidth * 0.6, this.height * 0.8);
+          
+          this.ripples.push({
+            x: this.x + (index + 0.5) * itemWidth, // Coordonnée absolue
+            y: this.y + this.height / 2, // Coordonnée absolue
+            radius: 0,
+            maxRadius: maxRippleRadius,
+            opacity: 1,
+            createdAt: performance.now()
+          });
+          
+          // Démarrer l'animation si elle n'est pas en cours
+          if (!this.animationFrame) {
+            this.startRippleAnimation();
+          }
+          
+          // Forcer un redessin
+          this.requestRender();
+        }
+        
+        this.selectedIndex = index;
+        this.updateIndicatorPosition();
+        
+        // Animer l'indicateur (iOS)
+        if (this.platform === 'cupertino') {
+          this.animateIndicator();
+        }
+        
+        if (this.onChange) {
+          this.onChange(index, this.items[index]);
+        }
+        
+        this.requestRender();
       }
     }
   }
