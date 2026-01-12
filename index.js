@@ -3,6 +3,7 @@
 // Core
 export { default as CanvasFramework } from './core/CanvasFramework.js';
 export { default as Component } from './core/Component.js';
+export { default as ui } from './core/UIBuilder.js';
 
 // Components
 export { default as Button } from './components/Button.js';
@@ -96,4 +97,11 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.11';
+export const VERSION = '0.3.10';
+
+
+
+
+
+
+
