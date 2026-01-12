@@ -563,6 +563,726 @@ app.add(screen);
 screen.layoutRecursive();
 ```
 
+## UIBuilder
+with UIBuilder you can build your interface with more simplicity
+
+```
+import { CanvasFramework, Column, ui, Table, Divider, MorphingFAB, PasswordInput, InputTags, InputDatalist,  SpeedDialFAB, FAB, FileUpload, OpenStreetMap, SignaturePad, TreeView, SearchInput, ContextMenu, BottomNavigationBar, Card, View, RadioButton, Dialog, Checkbox, PullToRefresh, ProgressBar, AppBar, Skeleton, Drawer, Text, Button, Input, Slider, Select, Switch } from './canvas-framework/index.js';
+
+const app = new CanvasFramework('app-canvas',{ 
+  useWebGL: true, 
+  showFps: true,
+  debug: true,
+});
+
+app.useWebGL = true;
+
+// Route principale
+app.route('/', (framework) => {
+  const platform = framework.platform === 'material' ? 'Material Design' : 'Cupertino (iOS)';
+  
+  if (framework.useWebGL) {
+    console.log("✅ WebGL est activé");
+  } else {
+    console.log("⚠️  WebGL non disponible, fallback en Canvas 2D");
+  }
+
+  // Variable pour stocker la référence du Text du slider
+  let sliderValueText = null;
+
+  ui.app(
+    ui.Column({ x: 0, y: 0, spacing: 0 }, [
+      // Titre
+      ui.Text({
+        x: 20,
+        y: 50,
+        width: framework.width - 40,
+        text: `Canvas Framework - ${platform}`,
+        fontSize: 24,
+        bold: true,
+        align: 'center'
+      }),
+
+      // Bouton Toast
+      ui.Button({
+        x: framework.width / 2 - 100,
+        y: 120,
+        width: 200,
+        height: 50,
+        text: 'Afficher Toast',
+        onClick: () => {
+          framework.showToast('Toast affiché avec succès!', 2000);
+        }
+      }),
+
+      // Input
+      ui.Input({
+        x: 20,
+        y: 200,
+        width: framework.width - 40,
+        height: 50,
+        placeholder: 'Entrez du texte...'
+      }),
+
+      // Label Slider
+      ui.Text({
+        x: 20,
+        y: 280,
+        width: framework.width - 40,
+        text: 'Valeur: 50',
+        fontSize: 14,
+        color: '#666666',
+        // Stocker la référence pour pouvoir la modifier
+        onMount: function() {
+          sliderValueText = this;
+        }
+      }),
+
+      // Slider
+      ui.Slider({
+        x: 20,
+        y: 310,
+        width: framework.width - 40,
+        height: 40,
+        value: 50,
+        onChange: (value) => {
+          if (sliderValueText) {
+            sliderValueText.text = `Valeur: ${Math.round(value)}`;
+            sliderValueText.markDirty();
+          }
+        }
+      }),
+
+      // Label Select
+      ui.Text({
+        x: 20,
+        y: 380,
+        width: framework.width - 40,
+        text: 'Menu déroulant:',
+        fontSize: 14,
+        color: '#666666'
+      }),
+
+      // Select
+      ui.Select({
+        x: 20,
+        y: 410,
+        width: framework.width - 40,
+        height: 50,
+        options: ['Option 1', 'Option 2', 'Option 3'],
+        selectedIndex: 0,
+        onChange: (selectedOption, selectedIndex) => {
+          console.log(`Option sélectionnée : ${selectedOption} (index: ${selectedIndex})`);
+        }
+      }),
+
+      // Label Switch
+      ui.Text({
+        x: 20,
+        y: 490,
+        width: framework.width - 100,
+        text: 'Activer notifications',
+        fontSize: 16
+      }),
+
+      // Switch
+      ui.Switch({
+        x: framework.width - 71,
+        y: 485,
+        checked: false,
+        onChange: (checked) => {
+          framework.showToast(checked ? 'Notifications activées' : 'Notifications désactivées');
+        }
+      }),
+
+      // Bouton Page 2
+      ui.Button({
+        x: 20,
+        y: 550,
+        type: 'outlined',
+        shape: 'square',
+        width: framework.width / 2 - 30,
+        height: 50,
+        text: 'Page 2 →',
+        bgColor: framework.platform === 'material' ? '#03DAC6' : '#FF9500',
+        onClick: () => {
+          framework.navigate('/page2', { transition: 'fade' });
+        }
+      }),
+
+      // Bouton Tout Tester
+      ui.Button({
+        x: framework.width / 2 + 10,
+        y: 550,
+        width: framework.width / 2 - 30,
+        height: 50,
+        type: 'filled',
+        shape: 'rounded',
+        text: 'Tout Tester →',
+        bgColor: framework.platform === 'material' ? '#FF9800' : '#34C759',
+        onClick: () => {
+          framework.navigate('/test', { transition: 'slide' });
+        }
+      })
+    ])
+  ).mount(framework);
+});
+
+// Page 2 avec Drawer et Navigation
+app.route('/page2', (framework) => {
+  let drawerRef = null;
+  // Drawer en DEHORS du ui.Column
+  const drawer = new Drawer(framework, {
+	header: { title: 'Mon App' },
+	items: [
+	  { icon: '🏠', label: 'Accueil' },
+	  { icon: '⚙️', label: 'Paramètres' },
+	  { icon: '❤️', label: 'Favoris', divider: true },
+	  { icon: '👤', label: 'Profil' }
+	],
+	onItemClick: (index, item) => {
+	  framework.showToast(`${item.label} cliqué`);
+	  framework.navigate('/', { transition: 'none' });
+	}
+  });
+
+  drawerRef = drawer;
+  framework.add(drawer);
+  
+  ui.app(
+    ui.Column({ x: 0, y: 0, spacing: 0 }, [
+      
+      // AppBar (sera au-dessus)
+      ui.AppBar({
+        title: 'Accueil',
+        leftIcon: 'menu',
+        rightIcon: 'search',
+        onLeftClick: () => {
+          if (drawerRef) drawerRef.open();
+        },
+        onRightClick: () => {
+          framework.showToast('Recherche');
+        }
+      }),
+      
+      // PasswordInput
+      ui.PasswordInput({
+        placeholder: 'Entrez votre mot de passe',
+        value: '',
+        fontSize: 16,
+        x: 20,
+        y: 120,
+        width: 300,
+        height: 40,
+        maskChar: '•',
+        showPassword: false,
+        onFocus: () => {
+          console.log('PasswordInput focus');
+        },
+        onBlur: () => {
+          console.log('PasswordInput blur');
+        }
+      }),
+      
+      // InputTags
+      ui.InputTags({
+        placeholder: 'Ajouter des tags...',
+        tags: ['javascript', 'canvas'],
+        x: 20,
+        y: 160,
+        width: 300,
+        height: 50,
+        
+        // Options de style
+        tagColor: '#E3F2FD',
+        tagTextColor: '#1565C0',
+        deleteButtonColor: '#1565C0',
+        
+        // Callbacks
+        onTagAdd: (tag, allTags) => {
+          console.log('Tag ajouté:', tag, 'Tags:', allTags);
+        },
+        onTagRemove: (tag, allTags) => {
+          console.log('Tag supprimé:', tag, 'Tags:', allTags);
+        }
+      }),
+      
+      // InputDatalist
+      ui.InputDatalist({
+        placeholder: 'Sélectionnez un pays...',
+        value: '',
+        options: [
+          'France', 'Allemagne', 'Espagne', 'Italie', 'Portugal',
+          'Belgique', 'Suisse', 'Canada', 'États-Unis', 'Japon',
+          'Chine', 'Corée du Sud', 'Australie', 'Brésil', 'Mexique'
+        ],
+        x: 50,
+        y: 210,
+        width: 300,
+        height: 40,
+        
+        // Options de style
+        maxDropdownItems: 8,
+        dropdownBackground: '#FFFFFF',
+        hoverBackground: '#F0F0F0',
+        selectedBackground: '#E3F2FD',
+        borderColor: '#CCCCCC',
+        
+        // Callbacks
+        onSelect: (selectedValue) => {
+          console.log('Option sélectionnée:', selectedValue);
+        },
+        onInput: (currentValue) => {
+          console.log('Valeur en cours:', currentValue);
+        }
+      }),
+      
+      // BottomNavigationBar
+      ui.BottomNavigationBar({
+        items: [
+          { icon: 'home', label: 'Home' },
+          { icon: 'search', label: 'Search' },
+          { icon: 'favorite', label: 'Favorites' },
+          { icon: 'person', label: 'Profile' },
+          { icon: 'settings', label: 'Settings' }
+        ],
+        selectedIndex: 0,
+        selectedColor: '#6200EE',
+        onChange: (index, item) => {
+          console.log(`Tab changed to: ${item.label} (index ${index})`);
+          // Navigation
+          switch(index) {
+            case 0: framework.navigate('home'); break;
+            case 1: framework.navigate('search'); break;
+            case 2: framework.navigate('favorites'); break;
+            case 3: framework.navigate('profile'); break;
+            case 4: framework.navigate('settings'); break;
+          }
+        }
+      })
+      
+    ])
+  ).mount(framework);
+});
+
+// Page de test complète
+app.route('/test', (framework) => {
+  // Références pour les composants interactifs
+  let progressBarRef = null;
+  let testInputRef = null;
+  let sliderDisplayRef = null;
+  let testSwitchRef = null;
+  
+  let yPosition = 80; // Commence sous l'AppBar
+  
+  const progressBar = new ProgressBar(framework, {
+	x: 20,
+	y: yPosition + 90,
+	width: framework.width - 40,
+	progress: 30
+  });
+  progressBarRef = progressBar;
+  framework.add(progressBar);
+  
+  ui.app(
+    ui.Column({ x: 0, y: 0, spacing: 0 }, [
+      
+      // AppBar de retour (fixe)
+      ui.AppBar({
+        title: 'Test Complet',
+        leftIcon: 'back',
+        onLeftClick: () => {
+          framework.navigate('/', { transition: 'slide' });
+        }
+      }),
+      
+      // Titre principal
+      ui.Text({
+        x: 20,
+        y: yPosition,
+        width: framework.width - 40,
+        text: 'Test de tous les composants',
+        fontSize: 24,
+        bold: true,
+        align: 'center'
+      }),
+      
+      // 1. ProgressBar Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 60,
+        width: framework.width - 40,
+        text: '1. ProgressBar:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Button({
+        x: 20,
+        y: yPosition + 140,
+        width: 150,
+        height: 40,
+        text: 'Augmenter',
+        onClick: () => {
+          if (progressBarRef) {
+            progressBarRef.progress = Math.min(100, progressBarRef.progress + 10);
+            progressBarRef.markDirty();
+          }
+        }
+      }),
+      
+      // 2. RadioButton Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 200,
+        width: framework.width - 40,
+        text: '2. RadioButton (Groupe 1):',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.RadioButton({
+        x: 40,
+        y: yPosition + 230,
+        group: 'groupe1',
+        label: 'Option A',
+        checked: true,
+        onChange: (checked) => {
+          if (checked) framework.showToast('Radio A sélectionné');
+        }
+      }),
+      
+      ui.RadioButton({
+        x: 40,
+        y: yPosition + 270,
+        group: 'groupe1',
+        label: 'Option B',
+        onChange: (checked) => {
+          if (checked) framework.showToast('Radio B sélectionné');
+        }
+      }),
+      
+      // 3. Checkbox Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 330,
+        width: framework.width - 40,
+        text: '3. Checkbox:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Checkbox({
+        x: 40,
+        y: yPosition + 360,
+        label: 'Accepter les termes',
+        checked: false,
+        onChange: (checked) => {
+          framework.showToast(checked ? 'Coché' : 'Décoché');
+        }
+      }),
+      
+      // 4. Card Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 420,
+        width: framework.width - 40,
+        text: '4. Card:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Card({
+        x: 20,
+        y: yPosition + 450,
+        width: framework.width - 40,
+        height: 180,
+        padding: 16,
+        elevation: 4,
+        borderRadius: 8
+      }, [
+        ui.Text({
+          x: 0,
+          y: 0,
+          width: framework.width - 72,
+          text: 'Titre de la carte',
+          fontSize: 18,
+          bold: true
+        }),
+        
+        ui.Text({
+          x: 0,
+          y: 40,
+          width: framework.width - 72,
+          maxWidth: framework.width - 72,
+          text: 'Ceci est un exemple de texte à l\'intérieur d\'une carte. Le texte ne devrait plus déborder maintenant car il va à la ligne automatiquement quand il atteint la largeur maximale.',
+          fontSize: 14,
+          color: '#666666',
+          wrap: true
+        }),
+        
+        ui.Button({
+          x: 0,
+          y: 120,
+          width: 150,
+          height: 40,
+          text: 'Bouton dans Card',
+          onClick: () => {
+            framework.showToast('Bouton dans Card cliqué!');
+          }
+        })
+      ]),
+      
+      // 5. Dialog Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 650,
+        width: framework.width - 40,
+        text: '5. Dialog:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Button({
+        x: 20,
+        y: yPosition + 680,
+        width: 200,
+        height: 50,
+        text: 'Afficher Dialog',
+        onClick: () => {
+          const dialog = new Dialog(framework, {
+            title: 'Titre du Dialog',
+            message: 'Ceci est un message de dialog. Voulez-vous continuer ?',
+            buttons: ['Annuler', 'OK'],
+            onButtonClick: (index, text) => {
+              framework.showToast(`Bouton cliqué: ${text}`);
+            }
+          });
+          framework.add(dialog);
+          dialog.show();
+        }
+      }),
+      
+      // 6. View Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 760,
+        width: framework.width - 40,
+        text: '6. View (Container):',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.View({
+        x: 20,
+        y: yPosition + 790,
+        width: framework.width - 40,
+        height: 200,
+        padding: 20,
+        gap: 10,
+        direction: 'column',
+        bgColor: '#F0F0F0',
+        borderRadius: 8
+      }, [
+        ui.Text({
+          width: framework.width - 80,
+          text: 'Contenu dans un View',
+          fontSize: 16,
+          bold: true
+        }),
+        
+        ui.Button({
+          width: 150,
+          height: 40,
+          text: 'Bouton dans View',
+          onClick: () => {
+            framework.showToast('Bouton dans View cliqué!');
+          }
+        }),
+        
+        ui.Switch({
+          checked: true,
+          onChange: (checked) => {
+            framework.showToast(`Switch dans View: ${checked ? 'ON' : 'OFF'}`);
+          }
+        })
+      ]),
+      
+      // 7. ContextMenu Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 1020,
+        width: framework.width - 40,
+        text: '7. ContextMenu:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Button({
+        x: 20,
+        y: yPosition + 1050,
+        width: 200,
+        height: 50,
+        text: 'Ouvrir Menu Contextuel',
+        onClick: () => {
+          const menu = new ContextMenu(framework, {
+            x: 20,
+            y: yPosition + 1110,
+            width: 200,
+            options: ['Option 1', 'Option 2', 'Option 3', 'Option 4'],
+            onSelect: (index) => {
+              framework.showToast(`Option ${index + 1} sélectionnée`);
+            }
+          });
+          framework.add(menu);
+        }
+      }),
+      
+      // 8. Input Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 1130,
+        width: framework.width - 40,
+        text: '8. Input avec valeur:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Input({
+        x: 20,
+        y: yPosition + 1160,
+        width: framework.width - 40,
+        height: 50,
+        placeholder: 'Tapez quelque chose...',
+        value: '',
+        onMount: function() {
+          testInputRef = this;
+        }
+      }),
+      
+      ui.Button({
+        x: 20,
+        y: yPosition + 1230,
+        width: 200,
+        height: 50,
+        text: 'Afficher valeur',
+        onClick: () => {
+          const value = testInputRef?.value || '(vide)';
+          framework.showToast(`Valeur: ${value}`);
+        }
+      }),
+      
+      // 9. Select Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 1300,
+        width: framework.width - 40,
+        text: '9. Select avec callback:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Select({
+        x: 20,
+        y: yPosition + 1330,
+        width: framework.width - 40,
+        height: 50,
+        options: ['Pomme', 'Banane', 'Orange', 'Fraise'],
+        selectedIndex: 0,
+        onChange: (value, index) => {
+          framework.showToast(`Sélectionné: ${value} (index: ${index})`);
+        }
+      }),
+      
+      // 10. Switch Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 1410,
+        width: framework.width - 40,
+        text: '10. Switch avec état:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Switch({
+        x: 20,
+        y: yPosition + 1440,
+        checked: false,
+        onChange: (checked) => {
+          framework.showToast(`Switch: ${checked ? 'ACTIVÉ' : 'DÉSACTIVÉ'}`);
+        },
+        onMount: function() {
+          testSwitchRef = this;
+        }
+      }),
+      
+      // 11. Slider Section
+      ui.Text({
+        x: 20,
+        y: yPosition + 1500,
+        width: framework.width - 40,
+        text: '11. Slider avec valeur:',
+        fontSize: 18,
+        bold: true
+      }),
+      
+      ui.Text({
+        x: 20,
+        y: yPosition + 1530,
+        width: framework.width - 40,
+        text: 'Valeur: 50',
+        fontSize: 14,
+        onMount: function() {
+          sliderDisplayRef = this;
+        }
+      }),
+      
+      ui.Slider({
+        x: 20,
+        y: yPosition + 1560,
+        width: framework.width - 40,
+        height: 40,
+        value: 50,
+        onChange: (value) => {
+          if (sliderDisplayRef) {
+            sliderDisplayRef.text = `Valeur: ${Math.round(value)}`;
+            sliderDisplayRef.markDirty();
+          }
+        }
+      }),
+      
+      // FAB flottant
+      ui.FAB({
+        icon: '+',
+        variant: 'medium',
+        x: framework.width - 56,
+        y: framework.height - 56,
+        bgColor: '#6750A4',
+        onClick: () => {
+          framework.showToast('FAB cliqué!');
+        }
+      }),
+      
+      // Bouton pour remonter
+      ui.Button({
+        x: framework.width / 2 - 100,
+        y: yPosition + 1640,
+        width: 200,
+        height: 50,
+        text: '↑ Remonter ↑',
+        onClick: () => {
+          framework.scrollOffset = 0;
+        }
+      })
+      
+    ])
+  ).mount(framework);
+});
+
+// Lancer l'app
+app.navigate('/', { transition: 'none' });
+```
+
 ## 📄 License
 
 MIT
