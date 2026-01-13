@@ -567,7 +567,7 @@ screen.layoutRecursive();
 with UIBuilder you can build your interface with more simplicity
 
 ```
-import { CanvasFramework, Column, ui, Table, Divider, MorphingFAB, PasswordInput, InputTags, InputDatalist,  SpeedDialFAB, FAB, FileUpload, OpenStreetMap, SignaturePad, TreeView, SearchInput, ContextMenu, BottomNavigationBar, Card, View, RadioButton, Dialog, Checkbox, PullToRefresh, ProgressBar, AppBar, Skeleton, Drawer, Text, Button, Input, Slider, Select, Switch } from './canvas-framework/index.js';
+import { CanvasFramework, Column, ui, createRef, Table, Divider, MorphingFAB, PasswordInput, InputTags, InputDatalist, SpeedDialFAB, FAB, FileUpload, OpenStreetMap, SignaturePad, TreeView, SearchInput, ContextMenu, BottomNavigationBar, Card, View, RadioButton, Dialog, Checkbox, PullToRefresh, ProgressBar, AppBar, Skeleton, Drawer, Text, Button, Input, Slider, Select, Switch } from './canvas-framework/index.js';
 
 const app = new CanvasFramework('app-canvas',{ 
   useWebGL: true, 
@@ -587,8 +587,8 @@ app.route('/', (framework) => {
     console.log("⚠️  WebGL non disponible, fallback en Canvas 2D");
   }
 
-  // Variable pour stocker la référence du Text du slider
-  let sliderValueText = null;
+  // ✅ Créer une ref pour le texte du slider
+  const sliderValueTextRef = createRef();
 
   ui.app(
     ui.Column({ x: 0, y: 0, spacing: 0 }, [
@@ -624,18 +624,15 @@ app.route('/', (framework) => {
         placeholder: 'Entrez du texte...'
       }),
 
-      // Label Slider
+      // Label Slider avec ref
       ui.Text({
+        ref: sliderValueTextRef, // ✅ Utiliser ref au lieu de onMount
         x: 20,
         y: 280,
         width: framework.width - 40,
         text: 'Valeur: 50',
         fontSize: 14,
-        color: '#666666',
-        // Stocker la référence pour pouvoir la modifier
-        onMount: function() {
-          sliderValueText = this;
-        }
+        color: '#666666'
       }),
 
       // Slider
@@ -646,9 +643,9 @@ app.route('/', (framework) => {
         height: 40,
         value: 50,
         onChange: (value) => {
-          if (sliderValueText) {
-            sliderValueText.text = `Valeur: ${Math.round(value)}`;
-            sliderValueText.markDirty();
+          if (sliderValueTextRef.current) {
+            sliderValueTextRef.current.text = `Valeur: ${Math.round(value)}`;
+            sliderValueTextRef.current.markDirty();
           }
         }
       }),
@@ -730,27 +727,27 @@ app.route('/', (framework) => {
 
 // Page 2 avec Drawer et Navigation
 app.route('/page2', (framework) => {
-  let drawerRef = null;
-  // Drawer en DEHORS du ui.Column
-  const drawer = new Drawer(framework, {
-	header: { title: 'Mon App' },
-	items: [
-	  { icon: '🏠', label: 'Accueil' },
-	  { icon: '⚙️', label: 'Paramètres' },
-	  { icon: '❤️', label: 'Favoris', divider: true },
-	  { icon: '👤', label: 'Profil' }
-	],
-	onItemClick: (index, item) => {
-	  framework.showToast(`${item.label} cliqué`);
-	  framework.navigate('/', { transition: 'none' });
-	}
-  });
-
-  drawerRef = drawer;
-  framework.add(drawer);
+  // ✅ Créer une ref pour le drawer
+  const drawerRef = createRef();
   
   ui.app(
     ui.Column({ x: 0, y: 0, spacing: 0 }, [
+      
+      // Drawer avec ref
+      ui.Drawer({
+        ref: drawerRef, // ✅ Utiliser ref
+        header: { title: 'Mon App' },
+        items: [
+          { icon: '🏠', label: 'Accueil' },
+          { icon: '⚙️', label: 'Paramètres' },
+          { icon: '❤️', label: 'Favoris', divider: true },
+          { icon: '👤', label: 'Profil' }
+        ],
+        onItemClick: (index, item) => {
+          framework.showToast(`${item.label} cliqué`);
+          framework.navigate('/', { transition: 'none' });
+        }
+      }),
       
       // AppBar (sera au-dessus)
       ui.AppBar({
@@ -758,7 +755,7 @@ app.route('/page2', (framework) => {
         leftIcon: 'menu',
         rightIcon: 'search',
         onLeftClick: () => {
-          if (drawerRef) drawerRef.open();
+          if (drawerRef.current) drawerRef.current.open();
         },
         onRightClick: () => {
           framework.showToast('Recherche');
@@ -792,13 +789,9 @@ app.route('/page2', (framework) => {
         y: 160,
         width: 300,
         height: 50,
-        
-        // Options de style
         tagColor: '#E3F2FD',
         tagTextColor: '#1565C0',
         deleteButtonColor: '#1565C0',
-        
-        // Callbacks
         onTagAdd: (tag, allTags) => {
           console.log('Tag ajouté:', tag, 'Tags:', allTags);
         },
@@ -820,15 +813,11 @@ app.route('/page2', (framework) => {
         y: 210,
         width: 300,
         height: 40,
-        
-        // Options de style
         maxDropdownItems: 8,
         dropdownBackground: '#FFFFFF',
         hoverBackground: '#F0F0F0',
         selectedBackground: '#E3F2FD',
         borderColor: '#CCCCCC',
-        
-        // Callbacks
         onSelect: (selectedValue) => {
           console.log('Option sélectionnée:', selectedValue);
         },
@@ -850,7 +839,6 @@ app.route('/page2', (framework) => {
         selectedColor: '#6200EE',
         onChange: (index, item) => {
           console.log(`Tab changed to: ${item.label} (index ${index})`);
-          // Navigation
           switch(index) {
             case 0: framework.navigate('home'); break;
             case 1: framework.navigate('search'); break;
@@ -867,22 +855,13 @@ app.route('/page2', (framework) => {
 
 // Page de test complète
 app.route('/test', (framework) => {
-  // Références pour les composants interactifs
-  let progressBarRef = null;
-  let testInputRef = null;
-  let sliderDisplayRef = null;
-  let testSwitchRef = null;
+  // ✅ Créer toutes les refs nécessaires
+  const progressBarRef = createRef();
+  const testInputRef = createRef();
+  const sliderDisplayRef = createRef();
+  const testSwitchRef = createRef();
   
-  let yPosition = 80; // Commence sous l'AppBar
-  
-  const progressBar = new ProgressBar(framework, {
-	x: 20,
-	y: yPosition + 90,
-	width: framework.width - 40,
-	progress: 30
-  });
-  progressBarRef = progressBar;
-  framework.add(progressBar);
+  let yPosition = 80;
   
   ui.app(
     ui.Column({ x: 0, y: 0, spacing: 0 }, [
@@ -917,6 +896,15 @@ app.route('/test', (framework) => {
         bold: true
       }),
       
+      // ✅ ProgressBar avec ref - PLUS BESOIN de création manuelle !
+      ui.ProgressBar({
+        ref: progressBarRef,
+        x: 20,
+        y: yPosition + 90,
+        width: framework.width - 40,
+        progress: 30
+      }),
+      
       ui.Button({
         x: 20,
         y: yPosition + 140,
@@ -924,9 +912,9 @@ app.route('/test', (framework) => {
         height: 40,
         text: 'Augmenter',
         onClick: () => {
-          if (progressBarRef) {
-            progressBarRef.progress = Math.min(100, progressBarRef.progress + 10);
-            progressBarRef.markDirty();
+          if (progressBarRef.current) {
+            progressBarRef.current.progress = Math.min(100, progressBarRef.current.progress + 10);
+            progressBarRef.current.markDirty();
           }
         }
       }),
@@ -1148,16 +1136,15 @@ app.route('/test', (framework) => {
         bold: true
       }),
       
+      // ✅ Input avec ref
       ui.Input({
+        ref: testInputRef,
         x: 20,
         y: yPosition + 1160,
         width: framework.width - 40,
         height: 50,
         placeholder: 'Tapez quelque chose...',
-        value: '',
-        onMount: function() {
-          testInputRef = this;
-        }
+        value: ''
       }),
       
       ui.Button({
@@ -1167,7 +1154,7 @@ app.route('/test', (framework) => {
         height: 50,
         text: 'Afficher valeur',
         onClick: () => {
-          const value = testInputRef?.value || '(vide)';
+          const value = testInputRef.current?.value || '(vide)';
           framework.showToast(`Valeur: ${value}`);
         }
       }),
@@ -1204,15 +1191,14 @@ app.route('/test', (framework) => {
         bold: true
       }),
       
+      // ✅ Switch avec ref
       ui.Switch({
+        ref: testSwitchRef,
         x: 20,
         y: yPosition + 1440,
         checked: false,
         onChange: (checked) => {
           framework.showToast(`Switch: ${checked ? 'ACTIVÉ' : 'DÉSACTIVÉ'}`);
-        },
-        onMount: function() {
-          testSwitchRef = this;
         }
       }),
       
@@ -1226,15 +1212,14 @@ app.route('/test', (framework) => {
         bold: true
       }),
       
+      // ✅ Text du slider avec ref
       ui.Text({
+        ref: sliderDisplayRef,
         x: 20,
         y: yPosition + 1530,
         width: framework.width - 40,
         text: 'Valeur: 50',
-        fontSize: 14,
-        onMount: function() {
-          sliderDisplayRef = this;
-        }
+        fontSize: 14
       }),
       
       ui.Slider({
@@ -1244,9 +1229,9 @@ app.route('/test', (framework) => {
         height: 40,
         value: 50,
         onChange: (value) => {
-          if (sliderDisplayRef) {
-            sliderDisplayRef.text = `Valeur: ${Math.round(value)}`;
-            sliderDisplayRef.markDirty();
+          if (sliderDisplayRef.current) {
+            sliderDisplayRef.current.text = `Valeur: ${Math.round(value)}`;
+            sliderDisplayRef.current.markDirty();
           }
         }
       }),
