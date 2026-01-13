@@ -89,7 +89,7 @@ import FeatureFlags from '../manager/FeatureFlags.js';
 
 // WebGL Adapter
 import WebGLCanvasAdapter from './WebGLCanvasAdapter.js';
-import ui from './UIBuilder.js';
+import ui, { createRef } from './UIBuilder.js';
 
 // theme
 export const lightTheme = {
@@ -1274,6 +1274,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
