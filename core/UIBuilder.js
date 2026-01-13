@@ -133,6 +133,13 @@ const Components = {
 };
 
 /**
+ * Crée un objet ref pour stocker une référence
+ */
+export function createRef() {
+  return { current: null };
+}
+
+/**
  * DSL déclaratif pour CanvasFramework
  */
 class UIBuilder {
@@ -162,7 +169,15 @@ class UIBuilder {
       return null;
     }
 
-    const instance = new ComponentClass(framework, node.props);
+    // Extraire la ref des props si elle existe
+    const { ref, ...componentProps } = node.props;
+
+    const instance = new ComponentClass(framework, componentProps);
+
+    // ✅ Si une ref est fournie, y stocker l'instance
+    if (ref && typeof ref === 'object' && 'current' in ref) {
+      ref.current = instance;
+    }
 
     // ✅ Ajouter au framework UNIQUEMENT si ce n'est pas un enfant de Card
     const isChildOfCard = parent && parent.constructor?.name === 'Card';
