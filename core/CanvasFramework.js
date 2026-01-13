@@ -826,6 +826,7 @@ class CanvasFramework {
              comp instanceof Dialog ||
              comp instanceof Modal ||
 			 comp instanceof FAB ||
+			 comp instanceof Toast ||
              comp instanceof BottomSheet ||
              comp instanceof ContextMenu ||
 			 comp instanceof OpenStreetMap ||
@@ -1256,6 +1257,7 @@ class CanvasFramework {
            comp instanceof Dialog ||
            comp instanceof Modal ||
            comp instanceof FAB ||
+		   comp instanceof Toast ||
 		   comp instanceof BottomSheet ||
            comp instanceof ContextMenu ||
 		   comp instanceof OpenStreetMap ||
@@ -1275,12 +1277,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
-
-
-
-
-
-
