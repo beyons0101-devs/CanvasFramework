@@ -46,8 +46,98 @@ class Component {
 
     // Pour détecter les updates
     this._prevProps = { ...options };
+	
+	// Système de listeners
+    this._listeners = new Map();
   }
 
+  /**
+   * Ajoute un listener pour un événement
+   * @param {string} event - Nom de l'événement
+   * @param {Function} handler - Fonction callback
+   * @returns {Component} - Pour le chaînage
+   */
+  on(event, handler) {
+    if (!this._listeners.has(event)) {
+      this._listeners.set(event, []);
+    }
+    this._listeners.get(event).push(handler);
+    return this;
+  }
+
+  /**
+   * Retire un listener
+   * @param {string} event - Nom de l'événement
+   * @param {Function} handler - Fonction à retirer
+   * @returns {Component}
+   */
+  off(event, handler) {
+    if (!this._listeners.has(event)) return this;
+    
+    const handlers = this._listeners.get(event);
+    const index = handlers.indexOf(handler);
+    if (index > -1) {
+      handlers.splice(index, 1);
+    }
+    return this;
+  }
+
+  /**
+   * Ajoute un listener qui s'exécute une seule fois
+   * @param {string} event - Nom de l'événement
+   * @param {Function} handler - Fonction callback
+   * @returns {Component}
+   */
+  once(event, handler) {
+    const wrapper = (...args) => {
+      handler(...args);
+      this.off(event, wrapper);
+    };
+    return this.on(event, wrapper);
+  }
+
+  /**
+   * Émet un événement
+   * @param {string} event - Nom de l'événement
+   * @param {...any} args - Arguments à passer aux handlers
+   * @returns {Component}
+   */
+  emit(event, ...args) {
+    if (!this._listeners.has(event)) return this;
+    
+    const handlers = this._listeners.get(event);
+    for (let handler of handlers) {
+      try {
+        handler(...args);
+      } catch (error) {
+        console.error(`Error in ${event} handler:`, error);
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Retire tous les listeners d'un événement (ou tous)
+   * @param {string} [event] - Nom de l'événement (optionnel)
+   * @returns {Component}
+   */
+  removeAllListeners(event) {
+    if (event) {
+      this._listeners.delete(event);
+    } else {
+      this._listeners.clear();
+    }
+    return this;
+  }
+
+  /**
+   * Retourne le nombre de listeners pour un événement
+   * @param {string} event - Nom de l'événement
+   * @returns {number}
+   */
+  listenerCount(event) {
+    return this._listeners.has(event) ? this._listeners.get(event).length : 0;
+  }	
   /* =======================
      LIFECYCLE HOOKS
      ======================= */
@@ -145,9 +235,3 @@ class Component {
 
 
 export default Component;
-
-
-
-
-
-
