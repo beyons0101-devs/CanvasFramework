@@ -98,7 +98,8 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.14';
+export const VERSION = '0.3.15';
+
 
 
 
