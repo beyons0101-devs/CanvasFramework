@@ -1,4 +1,5 @@
 import Component from '../core/Component.js';
+
 /**
  * Sélecteur de date iOS (style roue)
  * @class
@@ -11,11 +12,6 @@ import Component from '../core/Component.js';
  * @property {number} wheelHeight - Hauteur de la roue
  * @property {number} itemHeight - Hauteur d'un item
  * @property {number} visibleItems - Nombre d'items visibles
- * @property {boolean} dragging - En cours de drag
- * @property {number} dragStartY - Position Y du début du drag
- * @property {number|null} dragWheel - Roue en cours de drag
- * @property {number} lastDeltaY - Dernier delta Y
- * @property {boolean} wasDragging - Drag effectué
  */
 class IOSDatePickerWheel extends Component {
   /**
@@ -39,72 +35,86 @@ class IOSDatePickerWheel extends Component {
     this.itemHeight = 40;
     this.visibleItems = 5;
   
-    // AJOUTER CES LIGNES :
+    // État interne
     this.dragging = false;
     this.dragStartY = 0;
-    this.dragWheel = null; // 0=mois, 1=jour, 2=année
-    this.lastDeltaY = 0; // Pour éviter les micro-déplacements
-    this.wasDragging = false; // Pour savoir si on a vraiment déplacé
-     
-    // CORRECTION : Définir les méthodes de gestion d'événements
-    this.onPress = this.handlePress.bind(this);
-    this.onMove = this.handleMove.bind(this);
-    this.onRelease = this.handleRelease.bind(this); // Nouveau : pour le relâchement
+    this.dragWheel = null;
+    this.lastY = 0;
     
-    // CORRECTION : NE PAS REDÉFINIR width et height ici
-    // Au lieu de cela, utiliser les options passées ou des valeurs par défaut
-    // Les propriétés width et height sont déjà définies par super()
+    // Configuration des limites
+    this._setupLimits();
     
-    // Si aucune width n'a été passée dans options, on en définit une
+    // Setup des handlers
+    this._setupEventHandlers();
+    
+    // Dimensions
     if (!options.width) {
       this.width = framework.width - 40;
     }
     
-    // S'assurer que la hauteur correspond à wheelHeight
     if (!options.height) {
       this.height = this.wheelHeight;
     }
   }
   
   /**
-   * Gère le relâchement
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
+   * Configure les limites pour chaque roue
    * @private
    */
-  handleRelease(x, y) {
-    if (this.dragging) {
-      this.dragging = false;
-      this.dragWheel = null;
-      this.lastDeltaY = 0;
-      this.wasDragging = false;
-      
-      // IMPORTANT : Réinitialiser le composant actif du framework
-      if (this.framework.activeComponent === this) {
-        this.framework.activeComponent = null;
-      }
+  _setupLimits() {
+    // Mois: 0-11 (Janvier à Décembre)
+    this.monthMin = 0;
+    this.monthMax = 11;
+    
+    // Jour: 1-31 (selon le mois et l'année, on ajustera dynamiquement)
+    this.dayMin = 1;
+    this.dayMax = 31;
+    
+    // Année: 1900-2100 par défaut
+    this.yearMin = 1900;
+    this.yearMax = 2100;
+    
+    // Mettre à jour les limites du jour en fonction du mois et de l'année
+    this._updateDayLimits();
+  }
+  
+  /**
+   * Met à jour les limites du jour en fonction du mois et de l'année
+   * @private
+   */
+  _updateDayLimits() {
+    // Nombre de jours dans le mois actuel
+    const daysInMonth = new Date(this.yearWheel, this.monthWheel + 1, 0).getDate();
+    this.dayMax = daysInMonth;
+    
+    // Ajuster le jour sélectionné si nécessaire
+    if (this.dayWheel > daysInMonth) {
+      this.dayWheel = daysInMonth;
+      this._updateSelectedDate();
     }
   }
   
   /**
-   * Gère la pression
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans le composant
+   * Configure les gestionnaires d'événements
    * @private
    */
-  handlePress(x, y) {
-    // Ajuster y avec le scrollOffset
-    const adjustedY = y - this.framework.scrollOffset;
-    
-    // Vérifier si on clique dans le DatePicker
-    if (this.isPointInside(x, adjustedY)) {
-      this.dragging = true;
-      this.dragStartY = adjustedY;
-      this.lastDeltaY = 0;
-      this.wasDragging = false;
+  _setupEventHandlers() {
+    // Handler press
+    this.onPress = (x, y) => {
+      // Vérifier si dans le composant
+      const inside = (x >= this.x && x <= this.x + this.width && 
+                     y >= this.y && y <= this.y + this.wheelHeight);
       
-      // Déterminer quelle roue est touchée
+      if (!inside) {
+        return false;
+      }
+      
+      // Activer le drag
+      this.dragging = true;
+      this.dragStartY = y;
+      this.lastY = y;
+      
+      // Déterminer la roue
       const wheelWidth = this.width / 3;
       if (x < this.x + wheelWidth) {
         this.dragWheel = 0; // Mois
@@ -114,64 +124,204 @@ class IOSDatePickerWheel extends Component {
         this.dragWheel = 2; // Année
       }
       
-      // CRITIQUE : Définir ce composant comme actif dans le framework
+      // Prendre le contrôle
       this.framework.activeComponent = this;
+      
+      // Ajouter l'écouteur global pour les mouvements
+      this._addGlobalMoveListener();
+      
+      // Forcer le redessin
+      this._requestRedraw();
+      
       return true;
-    }
-    return false;
+    };
+    
+    // Handler release
+    this.onRelease = (x, y) => {
+      if (this.dragging) {
+        this.dragging = false;
+        this.dragWheel = null;
+        
+        // Retirer l'écouteur global
+        this._removeGlobalMoveListener();
+        
+        // Relâcher le contrôle
+        if (this.framework.activeComponent === this) {
+          this.framework.activeComponent = null;
+        }
+        
+        this._requestRedraw();
+      }
+    };
+    
+    // Handler move du framework
+    this.onMove = (x, y) => {
+      // Laissé vide, on utilise l'écouteur global
+    };
   }
   
   /**
-   * Gère le mouvement
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
+   * Ajoute un écouteur global pour les mouvements
    * @private
    */
-  handleMove(x, y) {
+  _addGlobalMoveListener() {
+    const canvas = this.framework.canvas;
+    
+    // Sauvegarder les anciens handlers
+    this._savedMouseMove = canvas.onmousemove;
+    this._savedTouchMove = canvas.ontouchmove;
+    
+    // Overrider les handlers
+    canvas.onmousemove = (e) => {
+      if (this.dragging) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        this._handleGlobalMove(x, y);
+        return false;
+      }
+      
+      // Appeler le handler original si on ne drag pas
+      if (this._savedMouseMove) {
+        return this._savedMouseMove(e);
+      }
+    };
+    
+    canvas.ontouchmove = (e) => {
+      if (this.dragging && e.touches.length > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const touch = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        this._handleGlobalMove(x, y);
+        return false;
+      }
+      
+      if (this._savedTouchMove) {
+        return this._savedTouchMove(e);
+      }
+    };
+  }
+  
+  /**
+   * Retire l'écouteur global
+   * @private
+   */
+  _removeGlobalMoveListener() {
+    const canvas = this.framework.canvas;
+    
+    if (this._savedMouseMove) {
+      canvas.onmousemove = this._savedMouseMove;
+      this._savedMouseMove = null;
+    }
+    
+    if (this._savedTouchMove) {
+      canvas.ontouchmove = this._savedTouchMove;
+      this._savedTouchMove = null;
+    }
+  }
+  
+  /**
+   * Gestionnaire de mouvement global
+   * @private
+   */
+  _handleGlobalMove(x, y) {
     if (!this.dragging) return;
     
-    const adjustedY = y - this.framework.scrollOffset;
-    const deltaY = adjustedY - this.dragStartY;
+    // Calculer le delta
+    const deltaY = y - this.lastY;
+    this.lastY = y;
     
-    // Seuil de mouvement pour éviter les micro-déplacements
-    if (Math.abs(deltaY - this.lastDeltaY) > 2) {
-      this.wasDragging = true;
-      const steps = Math.round((deltaY - this.lastDeltaY) / this.itemHeight);
+    // Appliquer le scroll si mouvement significatif
+    if (Math.abs(deltaY) > 0.5) {
+      const direction = deltaY > 0 ? 1 : -1;
       
-      if (steps !== 0) {
-        if (this.dragWheel === 0) {
-          // Mois
-          this.monthWheel = Math.max(0, Math.min(11, this.monthWheel - steps));
-        } else if (this.dragWheel === 1) {
-          // Jour
-          this.dayWheel = Math.max(1, Math.min(31, this.dayWheel - steps));
-        } else if (this.dragWheel === 2) {
-          // Année
-          this.yearWheel = Math.max(1900, Math.min(2100, this.yearWheel - steps));
-        }
+      // Appliquer le déplacement selon la roue avec limites
+      if (this.dragWheel === 0) {
+        // Mois - avec bouclage
+        let newMonth = this.monthWheel - direction;
+        if (newMonth < this.monthMin) newMonth = this.monthMax;
+        if (newMonth > this.monthMax) newMonth = this.monthMin;
+        this.monthWheel = newMonth;
         
-        // Mettre à jour la date
-        this.selectedDate = new Date(this.yearWheel, this.monthWheel, this.dayWheel);
-        if (this.onChange) this.onChange(this.selectedDate);
+        // Mettre à jour les limites du jour après changement de mois
+        this._updateDayLimits();
+      } 
+      else if (this.dragWheel === 1) {
+        // Jour - avec bouclage
+        let newDay = this.dayWheel - direction;
+        if (newDay < this.dayMin) newDay = this.dayMax;
+        if (newDay > this.dayMax) newDay = this.dayMin;
+        this.dayWheel = newDay;
+      } 
+      else if (this.dragWheel === 2) {
+        // Année - avec limites strictes
+        let newYear = this.yearWheel - direction;
+        if (newYear < this.yearMin) newYear = this.yearMin;
+        if (newYear > this.yearMax) newYear = this.yearMax;
+        this.yearWheel = newYear;
         
-        this.lastDeltaY = deltaY;
+        // Mettre à jour les limites du jour après changement d'année
+        this._updateDayLimits();
+      }
+      
+      // Mettre à jour la date
+      this._updateSelectedDate();
+      
+      // Forcer le redessin
+      this._requestRedraw();
+    }
+  }
+  
+  /**
+   * Met à jour la date sélectionnée
+   * @private
+   */
+  _updateSelectedDate() {
+    // Créer la nouvelle date
+    const newDate = new Date(this.yearWheel, this.monthWheel, this.dayWheel);
+    
+    // Vérifier si la date a changé
+    if (newDate.getTime() !== this.selectedDate.getTime()) {
+      this.selectedDate = newDate;
+      
+      // Appeler le callback
+      if (this.onChange) {
+        this.onChange(this.selectedDate);
       }
     }
   }
   
   /**
-   * Vérifie si un point est dans les limites
+   * Force le redessin du composant
+   * @private
+   */
+  _requestRedraw() {
+    if (this.framework.markComponentDirty) {
+      this.framework.markComponentDirty(this);
+    }
+  }
+  
+  /**
+   * Vérifie si un point est dans les limites du composant
    * @param {number} x - Coordonnée X
    * @param {number} y - Coordonnée Y
    * @returns {boolean} True si le point est dans le composant
    */
   isPointInside(x, y) {
-    // Ajuster y avec le scrollOffset pour la détection
-    const adjustedY = y - this.framework.scrollOffset;
+    // Pas de scrollOffset car le Modal est fixe
     return x >= this.x && 
            x <= this.x + this.width && 
-           adjustedY >= this.y && 
-           adjustedY <= this.y + this.wheelHeight;
+           y >= this.y && 
+           y <= this.y + this.wheelHeight;
   }
   
   /**
@@ -210,33 +360,36 @@ class IOSDatePickerWheel extends Component {
     ctx.lineTo(this.x + wheelWidth * 2, this.y + this.wheelHeight);
     ctx.stroke();
     
-    // Mois
+    // Mois (avec bouclage)
     const monthNames = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
                        'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-    this.drawWheel(ctx, this.x, monthNames, this.monthWheel);
+    this._drawWheel(ctx, this.x, monthNames, this.monthWheel, this.monthMin, this.monthMax);
     
-    // Jour
-    const days = Array.from({length: 31}, (_, i) => (i + 1).toString());
-    this.drawWheel(ctx, this.x + wheelWidth, days, this.dayWheel - 1);
+    // Jour (avec ajustement dynamique)
+    const daysInMonth = new Date(this.yearWheel, this.monthWheel + 1, 0).getDate();
+    const days = Array.from({length: daysInMonth}, (_, i) => (i + 1).toString());
+    this._drawWheel(ctx, this.x + wheelWidth, days, this.dayWheel - 1, 0, daysInMonth - 1);
     
-    // Année
-    const currentYear = new Date().getFullYear();
-    const years = Array.from({length: 100}, (_, i) => (currentYear - 50 + i).toString());
-    const yearIndex = this.yearWheel - (currentYear - 50);
-    this.drawWheel(ctx, this.x + wheelWidth * 2, years, yearIndex);
+    // Année (avec limites fixes)
+    const years = Array.from({length: this.yearMax - this.yearMin + 1}, 
+                           (_, i) => (this.yearMin + i).toString());
+    const yearIndex = this.yearWheel - this.yearMin;
+    this._drawWheel(ctx, this.x + wheelWidth * 2, years, yearIndex, 0, years.length - 1);
     
     ctx.restore();
   }
   
   /**
-   * Dessine une roue de sélection
+   * Dessine une roue de sélection avec limites
    * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
    * @param {number} x - Position X
    * @param {string[]} items - Items à afficher
    * @param {number} selectedIndex - Index sélectionné
+   * @param {number} minIndex - Index minimum
+   * @param {number} maxIndex - Index maximum
    * @private
    */
-  drawWheel(ctx, x, items, selectedIndex) {
+  _drawWheel(ctx, x, items, selectedIndex, minIndex = 0, maxIndex = items.length - 1) {
     const wheelWidth = this.width / 3;
     const centerY = this.y + this.wheelHeight / 2;
     
@@ -247,7 +400,7 @@ class IOSDatePickerWheel extends Component {
     
     for (let i = -2; i <= 2; i++) {
       const index = selectedIndex + i;
-      if (index >= 0 && index < items.length) {
+      if (index >= minIndex && index <= maxIndex) {
         const itemY = centerY + i * this.itemHeight;
         const distance = Math.abs(itemY - centerY);
         const scale = 1 - (distance / this.wheelHeight);
@@ -257,11 +410,20 @@ class IOSDatePickerWheel extends Component {
         ctx.font = `${i === 0 ? 'bold ' : ''}${18 + scale * 2}px -apple-system, sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(items[index], x + wheelWidth / 2, itemY);
+        ctx.fillText(items[index - minIndex], x + wheelWidth / 2, itemY);
       }
     }
     
     ctx.restore();
+  }
+  
+  /**
+   * Nettoie le composant
+   * @private
+   */
+  _unmount() {
+    this._removeGlobalMoveListener();
+    super._unmount();
   }
 }
 

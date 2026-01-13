@@ -1,179 +1,165 @@
 import Component from '../core/Component.js';
+
 /**
- * Case à cocher
- * @class
- * @extends Component
- * @property {boolean} checked - État cochée
- * @property {string} label - Texte du label
- * @property {string} platform - Plateforme
- * @property {number} boxWidth - Largeur de la case
- * @property {number} boxHeight - Hauteur de la case
- * @property {Function} onChange - Callback au changement
+ * Checkbox Material & Cupertino (iOS-like)
  */
 class Checkbox extends Component {
-  /**
-   * Crée une instance de Checkbox
-   * @param {CanvasFramework} framework - Framework parent
-   * @param {Object} [options={}] - Options de configuration
-   * @param {boolean} [options.checked=false] - État initial
-   * @param {string} [options.label=''] - Texte du label
-   * @param {Function} [options.onChange] - Callback au changement
-   */
   constructor(framework, options = {}) {
     super(framework, options);
-    this.checked = options.checked || false;
+
+    this.checked = !!options.checked;
     this.label = options.label || '';
     this.platform = framework.platform;
-    this.boxWidth = 24; // Taille de la case
-    this.boxHeight = 24; // Taille de la case
     this.onChange = options.onChange;
-    
-    // Calculer la largeur totale incluant le label
-    this.totalWidth = this.label ? this.boxWidth + 8 + this.getTextWidth(this.label) : this.boxWidth;
-    this.width = this.totalWidth; // Mettre à jour la largeur totale
-    this.height = this.boxHeight; // Garder la même hauteur
-    
-    // Définir onClick
-    this.onClick = this.handleClick.bind(this);
+
+    this.boxSize = 22;
+    this.padding = 10;
+
+    this.textWidth = this.label
+      ? this.getTextWidth(this.label)
+      : 0;
+
+    // Largeur totale
+    this.width =
+      this.platform === 'material'
+        ? this.boxSize + this.padding + this.textWidth
+        : this.textWidth + 28; // place pour checkmark iOS
+
+    this.height = 28;
+
+    this.onClick = () => {
+      this.checked = !this.checked;
+      this.onChange?.(this.checked);
+    };
   }
-  
-  /**
-   * Calcule la largeur du texte
-   * @param {string} text - Texte à mesurer
-   * @returns {number} Largeur du texte
-   * @private
-   */
+
   getTextWidth(text) {
-    // Utiliser le contexte temporaire pour mesurer le texte
     const ctx = this.framework.ctx;
     ctx.save();
-    ctx.font = '16px -apple-system, sans-serif';
-    const width = ctx.measureText(text).width;
+    ctx.font = '16px -apple-system, system-ui, sans-serif';
+    const w = ctx.measureText(text).width;
     ctx.restore();
-    return width;
+    return w;
   }
 
-  /**
-   * Gère le clic sur la checkbox
-   * @private
-   */
-  handleClick() {
-    this.checked = !this.checked;
-    if (this.onChange) this.onChange(this.checked);
-  }
-
-  /**
-   * Dessine la checkbox
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   */
   draw(ctx) {
     ctx.save();
-    
-    // Position de la case
-    const boxX = this.x;
-    const boxY = this.y;
-    const boxCenterX = boxX + this.boxWidth / 2;
-    const boxCenterY = boxY + this.boxHeight / 2;
-    
+    ctx.font = '16px -apple-system, system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+
+    const centerY = this.y + this.height / 2;
+
     if (this.platform === 'material') {
-      // Material Design Checkbox
-      if (this.checked) {
-        // Case cochée
-        ctx.fillStyle = '#6200EE';
-        ctx.beginPath();
-        this.roundRect(ctx, boxX, boxY, this.boxWidth, this.boxHeight, 2);
-        ctx.fill();
-        
-        // Coche
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(boxX + 6, boxY + 12);
-        ctx.lineTo(boxX + 10, boxY + 16);
-        ctx.lineTo(boxX + 18, boxY + 8);
-        ctx.stroke();
-      } else {
-        // Case non cochée
-        ctx.strokeStyle = '#666666';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        this.roundRect(ctx, boxX, boxY, this.boxWidth, this.boxHeight, 2);
-        ctx.stroke();
-      }
+      this.drawMaterial(ctx, centerY);
     } else {
-      // Cupertino (iOS) Checkbox
-      if (this.checked) {
-        // Case cochée (iOS utilise plutôt un cercle)
-        ctx.fillStyle = '#007AFF';
-        ctx.beginPath();
-        ctx.arc(boxCenterX, boxCenterY, this.boxWidth/2, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Coche
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(boxX + 6, boxCenterY);
-        ctx.lineTo(boxX + 10, boxCenterY + 4);
-        ctx.lineTo(boxX + 18, boxCenterY - 4);
-        ctx.stroke();
-      } else {
-        // Case non cochée
-        ctx.strokeStyle = '#C7C7CC';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(boxCenterX, boxCenterY, this.boxWidth/2, 0, Math.PI * 2);
-        ctx.stroke();
-      }
+      this.drawCupertino(ctx, centerY);
     }
-    
-    // Label
-    if (this.label) {
-      ctx.fillStyle = '#000000';
-      ctx.font = '16px -apple-system, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.label, boxX + this.boxWidth + 8, boxCenterY);
-    }
-    
+
     ctx.restore();
   }
 
-  /**
-   * Dessine un rectangle avec coins arrondis
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   * @param {number} x - Position X
-   * @param {number} y - Position Y
-   * @param {number} width - Largeur
-   * @param {number} height - Hauteur
-   * @param {number} radius - Rayon des coins
-   * @private
-   */
-  roundRect(ctx, x, y, width, height, radius) {
+  /* ---------------- MATERIAL ---------------- */
+
+  drawMaterial(ctx, centerY) {
+    const x = this.x;
+    const y = centerY - this.boxSize / 2;
+
+    // Box
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = this.checked ? '#6200EE' : '#757575';
+    ctx.fillStyle = this.checked ? '#6200EE' : 'transparent';
+
+    this.roundRect(ctx, x, y, this.boxSize, this.boxSize, 3);
+    if (this.checked) ctx.fill();
+    ctx.stroke();
+
+    // Check
+    if (this.checked) {
+      ctx.strokeStyle = '#FFF';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(x + 5, y + 12);
+      ctx.lineTo(x + 9, y + 16);
+      ctx.lineTo(x + 17, y + 7);
+      ctx.stroke();
+    }
+
+    // Label
+    ctx.fillStyle = '#000';
+    ctx.fillText(
+      this.label,
+      x + this.boxSize + this.padding,
+      centerY
+    );
+  }
+
+  /* ---------------- CUPERTINO ---------------- */
+
+  /* ---------------- CUPERTINO ---------------- */
+
+drawCupertino(ctx, centerY) {
+  const radius = 10;
+  const circleX = this.x + radius;
+  const circleY = centerY;
+
+  // Cercle
+  if (this.checked) {
+    ctx.fillStyle = '#007AFF'; // Apple blue
     ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.arc(circleX, circleY, radius, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = '#C7C7CC'; // iOS gray
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(circleX, circleY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Checkmark
+  if (this.checked) {
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.beginPath();
+    ctx.moveTo(circleX - 4, circleY);
+    ctx.lineTo(circleX - 1, circleY + 3);
+    ctx.lineTo(circleX + 5, circleY - 4);
+    ctx.stroke();
+  }
+
+  // Label
+  ctx.fillStyle = '#000';
+  ctx.fillText(
+    this.label,
+    this.x + radius * 2 + this.padding,
+    centerY
+  );
+}
+
+  roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
   }
-  
-  /**
-   * Vérifie si un point est dans les limites
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans la checkbox
-   */
+
   isPointInside(x, y) {
-    return x >= this.x && 
-           x <= this.x + this.width && 
-           y >= this.y && 
-           y <= this.y + this.height;
+    return (
+      x >= this.x &&
+      x <= this.x + this.width &&
+      y >= this.y &&
+      y <= this.y + this.height
+    );
   }
 }
 

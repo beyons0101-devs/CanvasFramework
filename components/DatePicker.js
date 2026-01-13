@@ -1,4 +1,9 @@
 import Component from '../core/Component.js';
+import AndroidDatePickerDialog from '../components/AndroidDatePickerDialog.js';
+import Modal from '../components/Modal.js';
+import IOSDatePickerWheel from '../components/IOSDatePickerWheel.js';
+import Button from '../components/Button.js';
+
 /**
  * Sélecteur de date (wrapper)
  * @class
@@ -61,6 +66,8 @@ class DatePicker extends Component {
    * Ouvre le sélecteur iOS
    * @private
    */
+   
+ 
   openIOSPicker() {
     // Créer un modal avec le picker iOS
     const modal = new Modal(this.framework, {
