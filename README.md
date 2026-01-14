@@ -121,6 +121,55 @@ This allows smoother UI and better separation of concerns.
 
 ---
 
+## Hello Word Exemple 
+
+```
+import { CanvasFramework, Column, ui, createRef, Table, Divider, MorphingFAB, PasswordInput, InputTags, InputDatalist, SpeedDialFAB, FAB, FileUpload, OpenStreetMap, SignaturePad, TreeView, SearchInput, ContextMenu, BottomNavigationBar, Card, View, RadioButton, Dialog, Checkbox, PullToRefresh, ProgressBar, AppBar, Skeleton, Drawer, Text, Button, Input, Slider, Select, Switch } from './canvas-framework/index.js';
+
+const app = new CanvasFramework('app-canvas',{ 
+  useWebGL: true, 
+  showFps: true,
+  debug: true,
+});
+
+app.useWebGL = true;
+
+// Route principale
+app.route('/', (framework) => {
+  const platform = framework.platform === 'material' ? 'Material Design' : 'Cupertino (iOS)';
+  
+  if (framework.useWebGL) {
+    console.log("✅ WebGL est activé");
+  } else {
+    console.log("⚠️  WebGL non disponible, fallback en Canvas 2D");
+  }
+
+  // ✅ Créer une ref pour le texte du slider
+  const sliderValueTextRef = createRef();
+
+  ui.app(
+    ui.Column({ x: 0, y: 0, spacing: 0 }, [
+      // Titre
+      ui.Text({
+        x: 20,
+        y: 50,
+        width: framework.width - 40,
+        text: `Hello word`,
+        fontSize: 24,
+        bold: true,
+        align: 'center'
+      })
+      
+    ])
+  ).mount(framework);
+});
+
+// Lancer l'app
+app.navigate('/', { transition: 'none' });
+```
+
+---
+
 ## 🔌 Native capabilities
 
 Native features are accessed via the **host runtime** (Capacitor / Cordova):
