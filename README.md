@@ -1,17 +1,61 @@
  <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/feae14e9-8d68-41f9-9e33-e444f1a6f360" />
 
+> **A Flutter-like rendering engine for WebView-based apps, written in JavaScript.**
 
-# Canvas UI Engine (UI engine inspired by Flutter, built for the Web)
+Canvas UI Engine is a **high-performance UI framework** that renders everything using **Canvas 2D or WebGL**, without relying on HTML, CSS, or the DOM.
 
-> **Canvas-based UI Engine for Mobile & Embedded Apps**  
-> A high-performance UI engine rendered with Canvas/WebGL, running inside a WebView runtime (Capacitor / Cordova), without DOM, HTML or CSS.
+It is designed for **mobile apps**, **embedded systems**, and **offline-first environments**, running seamlessly inside **Capacitor / Cordova WebViews**.
 
 ---
 
-# Installation
-- npm install canvasframework
+## 🚀 TL;DR
+
+- 🚫 No DOM, no HTML, no CSS  
+- 🎨 Canvas 2D with automatic WebGL acceleration  
+- 🧱 Flutter-inspired layout & rendering model  
+- ⚡ Deterministic UI & predictable performance  
+- 📱 Perfect for Capacitor / mobile WebView apps  
+
+---
+
+## 🤔 Why Canvas UI Engine?
+
+Traditional web frameworks rely on:
+- the DOM
+- CSS layout engines
+- browser-specific behavior
+
+Canvas UI Engine takes a **radically different approach**:
+
+> **You describe a UI tree → the engine renders pixels.**
+
+### Benefits
+
+- ✅ Same UI everywhere  
+- ✅ No CSS bugs or layout shifts  
+- ✅ Stable FPS even with complex UIs  
+- ✅ Perfect for mobile & embedded WebViews  
+
+---
+
+## 🧠 Core Concepts
+
+- Scene Graph (Flutter-like)
+- Custom layout engine
+- Dirty region rendering
+- Canvas 2D + WebGL fallback
+- Single rendering pipeline
+- Declarative DSL + imperative control
+
+---
+
+## 📦 Installation
+
+```bash
+- npm install canvas-ui-engine
 - npm install -D vite
 
+---
 # add in package.json
 "scripts": {
   "dev": "vite",
@@ -62,12 +106,29 @@ The WebView is used **only as a JavaScript runtime**, not as a UI system.
 > **The WebView is only a runtime shell.**  
 > **The UI is fully controlled by the engine (no DOM, no HTML layout).**
 
+## Who should use this?
+
+✅ Flutter developers wanting a WebView-based runtime
+✅ Game / engine developers
+✅ Embedded & kiosk app developers
+✅ Apps where UI determinism matters more than HTML compatibility
+
+❌ Not for websites
+❌ Not for SEO
+❌ Not for quick CRUD dashboards
 
 ### Key point
 
 > **The browser does not manage UI.  
 > The engine does.**
 
+✅ Core Concepts
+✅ Scene Graph (like Flutter / game engines)
+✅ Custom layout system (Row, Column, Stack, Positioned)
+✅ Dirty-region rendering
+✅ Canvas 2D with WebGL fallback
+✅ Single rendering pipeline
+✅ Imperative or Declarative (DSL) UI
 ---
 
 ## 🎨 Rendering
@@ -124,50 +185,21 @@ This allows smoother UI and better separation of concerns.
 ## Hello Word Exemple 
 
 ```
-import { CanvasFramework, Column, ui, createRef, Text } from './canvas-framework/index.js';
+import { CanvasFramework, ui } from 'canvasframework';
 
-const app = new CanvasFramework('app-canvas',{ 
-  useWebGL: true, 
-  showFps: true,
-  debug: true,
-});
+const app = new CanvasFramework('app-canvas');
 
-app.useWebGL = true;
-
-// Route principale
-app.route('/', (framework) => {
-  const platform = framework.platform === 'material' ? 'Material Design' : 'Cupertino (iOS)';
-  
-  if (framework.useWebGL) {
-    console.log("✅ WebGL est activé");
-  } else {
-    console.log("⚠️  WebGL non disponible, fallback en Canvas 2D");
-  }
-
-  // ✅ Créer une ref pour le texte du slider
-  const sliderValueTextRef = createRef();
-
+app.route('/', (fw) => {
   ui.app(
-    ui.Column({ x: 0, y: 0, spacing: 0 }, [
-      // Titre
-      ui.Text({
-        x: 20,
-        y: 50,
-        width: framework.width - 40,
-        text: `Hello word`,
-        fontSize: 24,
-        bold: true,
-        align: 'center'
-      })
-      
+    ui.Column({ padding: 16 }, [
+      ui.Text({ text: 'Hello World', fontSize: 24 }),
+      ui.Button({ text: 'Click me' })
     ])
-  ).mount(framework);
+  ).mount(fw);
 });
 
-// Lancer l'app
-app.navigate('/', { transition: 'none' });
+app.navigate('/');
 ```
-
 ---
 
 ## 🔌 Native capabilities
