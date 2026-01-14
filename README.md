@@ -124,7 +124,7 @@ This allows smoother UI and better separation of concerns.
 ## Hello Word Exemple 
 
 ```
-import { CanvasFramework, Column, ui, createRef, Table, Divider, MorphingFAB, PasswordInput, InputTags, InputDatalist, SpeedDialFAB, FAB, FileUpload, OpenStreetMap, SignaturePad, TreeView, SearchInput, ContextMenu, BottomNavigationBar, Card, View, RadioButton, Dialog, Checkbox, PullToRefresh, ProgressBar, AppBar, Skeleton, Drawer, Text, Button, Input, Slider, Select, Switch } from './canvas-framework/index.js';
+import { CanvasFramework, Column, ui, createRef, Text } from './canvas-framework/index.js';
 
 const app = new CanvasFramework('app-canvas',{ 
   useWebGL: true, 
