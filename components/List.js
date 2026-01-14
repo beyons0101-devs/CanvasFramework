@@ -1,24 +1,12 @@
 import Component from '../core/Component.js';
 import ListItem from '../components/ListItem.js';
+
 /**
  * Conteneur pour les éléments de liste (ListItems) avec défilement automatique
  * @class
  * @extends Component
- * @param {Framework} framework - Instance du framework
- * @param {Object} [options={}] - Options de configuration
- * @param {number} [options.itemHeight=56] - Hauteur de chaque item en pixels
- * @param {Function} [options.onItemClick] - Callback appelé lors du clic sur un item
- * @param {number} [options.y=0] - Position Y de départ
- * @example
- * const list = new List(framework, {
- *   itemHeight: 64,
- *   onItemClick: (index, itemOptions) => console.log('Item clicked:', index)
- * });
  */
 class List extends Component {
-  /**
-   * @constructs List
-   */
   constructor(framework, options = {}) {
     super(framework, options);
     /** @type {ListItem[]} */
@@ -28,37 +16,50 @@ class List extends Component {
     /** @type {Function|undefined} */
     this.onItemClick = options.onItemClick;
     /** @type {number} */
-    this.y = options.y || 0; // Position Y de départ
+    this.y = options.y || 0;
   }
   
   /**
    * Ajoute un item à la liste
-   * @param {Object} itemOptions - Options pour l'item
-   * @param {string} itemOptions.text - Texte à afficher
-   * @param {Function} [itemOptions.onClick] - Callback spécifique à l'item
-   * @param {Object} [itemOptions.style] - Style optionnel pour l'item
-   * @returns {ListItem} L'item créé
+   * @param {Object|Component} itemOptions - Options pour l'item OU instance de Component (ex: SwipeableListItem)
+   * @returns {ListItem|Component} L'item créé ou passé
    */
   addItem(itemOptions) {
-    const item = new ListItem(this.framework, {
-      ...itemOptions,
-      x: this.x,
-      y: this.y + (this.items.length * this.itemHeight),
-      width: this.width,
-      height: this.itemHeight, // IMPORTANT: définir la hauteur
-      onClick: () => {
-        if (this.onItemClick) {
-          this.onItemClick(this.items.length, itemOptions);
+    let item;
+    
+    // 🔹 Vérifier si c'est déjà un composant instancié (SwipeableListItem)
+    if (itemOptions instanceof Component) {
+      item = itemOptions;
+      
+      // 🔹 CRITIQUE : Définir la position et taille de l'item
+      item.x = this.x;
+      item.y = this.y + (this.items.length * this.itemHeight);
+      item.width = this.width;
+      item.height = this.itemHeight;
+      
+      console.log(`📦 SwipeableListItem positionné à y=${item.y}`);
+    } else {
+      // Créer un ListItem standard
+      item = new ListItem(this.framework, {
+        ...itemOptions,
+        x: this.x,
+        y: this.y + (this.items.length * this.itemHeight),
+        width: this.width,
+        height: this.itemHeight,
+        onClick: () => {
+          if (this.onItemClick) {
+            this.onItemClick(this.items.length, itemOptions);
+          }
+          if (itemOptions.onClick) {
+            itemOptions.onClick();
+          }
         }
-        if (itemOptions.onClick) {
-          itemOptions.onClick();
-        }
-      }
-    });
+      });
+    }
     
     this.items.push(item);
-    this.framework.add(item); // Ajouter chaque item au framework
-    this.height = this.items.length * this.itemHeight; // Mettre à jour la hauteur totale
+    this.framework.add(item);
+    this.height = this.items.length * this.itemHeight;
     
     return item;
   }

@@ -93,6 +93,14 @@ class Button extends Component {
         this.rippleColor = this.hexToRgba(baseColor, 0.3);
         this.elevation = 0;
         break;
+		
+	  default :
+		this.bgColor = options.bgColor || '#FFFFFF';
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        this.rippleColor = this.hexToRgba(baseColor, 0.2);
+        this.elevation = options.elevation || 4;
+        break;
     }
   }
   
@@ -124,6 +132,12 @@ class Button extends Component {
         
       case 'plain':
         this.bgColor = 'transparent';
+        this.textColor = options.textColor || baseColor;
+        this.borderWidth = 0;
+        break;
+		
+	  default :
+		this.bgColor = 'transparent';
         this.textColor = options.textColor || baseColor;
         this.borderWidth = 0;
         break;

@@ -3,22 +3,9 @@ import Component from '../core/Component.js';
 /**
  * Carousel / Slider d'images avec swipe horizontal et lazy load
  * Compatible Material et Cupertino
- * @class
- * @extends Component
+ * Tout le scroll est géré par le composant
  */
 class ImageCarousel extends Component {
-  /**
-   * @param {CanvasFramework} framework - Framework parent
-   * @param {Object} [options={}]
-   * @param {Array<string>} [options.images=[]] - URLs des images
-   * @param {number} [options.height=200] - Hauteur du carousel
-   * @param {number} [options.spacing=16] - Espacement entre images
-   * @param {number} [options.borderRadius=8] - Coins arrondis
-   * @param {number} [options.pageIndicatorSize=8] - Taille des dots
-   * @param {string} [options.pageIndicatorColor='#6200EE'] - Couleur dot actif
-   * @param {Function} [options.onSwipeEnd] - Callback quand la page change
-   * @param {Function} [options.onImageClick] - Callback clic sur image
-   */
   constructor(framework, options = {}) {
     super(framework, options);
 
@@ -33,8 +20,9 @@ class ImageCarousel extends Component {
     this.pageIndicatorColor = options.pageIndicatorColor || '#6200EE';
 
     this.platform = framework.platform;
-    this.startX = 0;
+
     this.isDragging = false;
+    this.lastX = 0;
     this.velocity = 0;
 
     this.onSwipeEnd = options.onSwipeEnd || null;
@@ -42,98 +30,140 @@ class ImageCarousel extends Component {
 
     this.loadedImages = Array(this.images.length).fill(null);
 
-    // Bind swipe
-    this.framework.addEventListener('touchstart', this.onTouchStart.bind(this));
-    this.framework.addEventListener('touchmove', this.onTouchMove.bind(this));
-    this.framework.addEventListener('touchend', this.onTouchEnd.bind(this));
-
+    this._setupEventHandlers();
     this.animateScroll();
   }
 
-  onTouchStart(e) {
-    const touch = e.touches[0];
-    this.startX = touch.clientX;
-    this.isDragging = true;
-    this.velocity = 0;
-    this.lastTime = performance.now();
-    this.lastX = touch.clientX;
+  // --------------------------
+  // Event handlers
+  // --------------------------
+  _setupEventHandlers() {
+    const canvas = this.framework.canvas;
+
+    // TOUCH
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1 && this.isPointInsideTouch(e.touches[0])) {
+        this.isDragging = true;
+        this.lastX = e.touches[0].clientX;
+        this.velocity = 0;
+        e.preventDefault();
+      }
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (this.isDragging && e.touches.length === 1) {
+        const delta = e.touches[0].clientX - this.lastX;
+        this.scrollX += delta;
+        this.velocity = delta;
+        this.lastX = e.touches[0].clientX;
+
+        this._clampScroll();
+        this._requestRedraw();
+        e.preventDefault();
+      }
+    });
+
+    canvas.addEventListener('touchend', () => this._endDrag());
+
+    // MOUSE
+    canvas.addEventListener('mousedown', (e) => {
+      if (this.isPointInside(e)) {
+        this.isDragging = true;
+        this.lastX = e.clientX;
+        this.velocity = 0;
+        e.preventDefault();
+      }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (this.isDragging) {
+        const delta = e.clientX - this.lastX;
+        this.scrollX += delta;
+        this.velocity = delta;
+        this.lastX = e.clientX;
+
+        this._clampScroll();
+        this._requestRedraw();
+      }
+    });
+
+    canvas.addEventListener('mouseup', () => this._endDrag());
+    canvas.addEventListener('mouseleave', () => this._endDrag());
   }
 
-  onTouchMove(e) {
-    if (!this.isDragging) return;
-    const touch = e.touches[0];
-    const delta = touch.clientX - this.startX;
-    this.scrollX = -this.currentIndex * (this.width + this.spacing) + delta;
+  _endDrag() {
+    if (this.isDragging) {
+      this.isDragging = false;
+      // Snap à la page la plus proche
+      const targetIndex = Math.round(-this.scrollX / (this.width + this.spacing));
+      this.currentIndex = Math.min(Math.max(targetIndex, 0), this.images.length - 1);
+      this.scrollX = -this.currentIndex * (this.width + this.spacing);
 
-    // calculer velocity
-    const now = performance.now();
-    const dt = now - this.lastTime;
-    this.velocity = (touch.clientX - this.lastX) / dt * 16; // approximation
-    this.lastTime = now;
-    this.lastX = touch.clientX;
-  }
-
-  onTouchEnd() {
-    if (!this.isDragging) return;
-
-    // momentum scroll
-    const momentumThreshold = this.width / 3;
-    let targetIndex = this.currentIndex;
-
-    if (this.velocity < -0.5) targetIndex = Math.min(this.currentIndex + 1, this.images.length - 1);
-    else if (this.velocity > 0.5) targetIndex = Math.max(this.currentIndex - 1, 0);
-    else {
-      const deltaIndex = Math.round(-this.scrollX / (this.width + this.spacing)) - this.currentIndex;
-      if (deltaIndex > 0) targetIndex = Math.min(this.currentIndex + 1, this.images.length - 1);
-      else if (deltaIndex < 0) targetIndex = Math.max(this.currentIndex - 1, 0);
+      if (this.onSwipeEnd) this.onSwipeEnd(this.currentIndex);
     }
-
-    this.currentIndex = targetIndex;
-    this.scrollX = -this.currentIndex * (this.width + this.spacing);
-
-    this.isDragging = false;
-    this.velocity = 0;
-
-    if (this.onSwipeEnd) this.onSwipeEnd(this.currentIndex);
   }
 
+  _clampScroll() {
+    const maxScroll = 0;
+    const minScroll = -(this.images.length - 1) * (this.width + this.spacing);
+    if (this.scrollX > maxScroll) this.scrollX = maxScroll;
+    if (this.scrollX < minScroll) this.scrollX = minScroll;
+  }
+
+  isPointInsideTouch(touch) {
+    const rect = this.framework.canvas.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+    return this.isPointInside(x, y);
+  }
+
+  isPointInside(x, y) {
+    return x >= this.x && x <= this.x + this.width &&
+           y >= this.y && y <= this.y + this.height;
+  }
+
+  _requestRedraw() {
+    if (this.framework.markComponentDirty) this.framework.markComponentDirty(this);
+  }
+
+  // --------------------------
+  // Animation / Inertie
+  // --------------------------
   animateScroll() {
     const animate = () => {
       if (!this.isDragging) {
-        // inertia effect
+        // inertia
         if (Math.abs(this.velocity) > 0.1) {
           this.scrollX += this.velocity;
-          this.velocity *= 0.95; // friction
+          this.velocity *= 0.95;
 
-          // clamp
-          if (this.scrollX > 0) this.scrollX = 0;
-          const maxScroll = -(this.images.length - 1) * (this.width + this.spacing);
-          if (this.scrollX < maxScroll) this.scrollX = maxScroll;
+          this._clampScroll();
         } else {
-          // snap to nearest
+          // snap doux vers la page
           const target = -this.currentIndex * (this.width + this.spacing);
           this.scrollX += (target - this.scrollX) * 0.2;
         }
       }
-
       requestAnimationFrame(animate);
     };
     animate();
   }
 
+  // --------------------------
+  // Draw
+  // --------------------------
   draw(ctx) {
     ctx.save();
-
     const startX = this.x + this.scrollX + this.spacing / 2;
 
     for (let i = 0; i < this.images.length; i++) {
       const imgX = startX + i * (this.width + this.spacing);
 
-      // charger lazy image
+      // lazy load
       if (!this.loadedImages[i]) {
         const img = new Image();
         img.src = this.images[i];
-        img.onload = () => { this.loadedImages[i] = img; };
+        img.onload = () => { this.loadedImages[i] = img; this._requestRedraw(); };
       }
 
       ctx.save();
@@ -152,10 +182,11 @@ class ImageCarousel extends Component {
         ctx.textBaseline = 'middle';
         ctx.fillText('🖼', imgX + this.width / 2, this.y + this.height / 2);
       }
+
       ctx.restore();
     }
 
-    // Pagination Material
+    // pagination Material
     if (this.platform === 'material') {
       const dotY = this.y + this.height + 12;
       const totalWidth = this.images.length * this.pageIndicatorSize * 2;
@@ -182,11 +213,6 @@ class ImageCarousel extends Component {
     ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
-  }
-
-  isPointInside(x, y) {
-    return x >= this.x && x <= this.x + this.width &&
-           y >= this.y && y <= this.y + this.height;
   }
 }
 

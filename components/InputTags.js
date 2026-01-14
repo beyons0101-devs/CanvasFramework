@@ -414,14 +414,44 @@ class InputTags extends Component {
     
     return cursorX;
   }
+  
+  updateHeight() {
+	const maxX = this.x + this.width - 10; // marge droite
+	let currentX = this.x + 10;
+	let currentY = this.y + 10;
+	let lines = 1;
+
+	for (let i = 0; i < this.tags.length; i++) {
+	  const tagWidth = this.measureTagWidth(this.tags[i]);
+
+  	  if (currentX + tagWidth > maxX) {
+	    currentX = this.x + 10;
+	    currentY += this.tagHeight + this.tagSpacing;
+	    lines++;
+	  }
+
+	  currentX += tagWidth + this.tagSpacing;
+	}
+
+	// Ajouter la largeur du texte en cours
+	const textWidth = this.value.length * (this.fontSize * 0.6);
+	if (currentX + textWidth > maxX) {
+	  lines++;
+	}
+
+	// Mettre à jour la hauteur dynamique
+	this.height = Math.max(lines * (this.tagHeight + this.tagSpacing) + 10, 40); // 40 = minHeight
+  }
 
   /**
    * Dessine l'input
    * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
    */
   draw(ctx) {
+    this.updateHeight();
     ctx.save();
-    
+
+    // Dessin du contour
     if (this.platform === 'material') {
       ctx.strokeStyle = this.focused ? '#6200EE' : '#CCCCCC';
       ctx.lineWidth = this.focused ? 2 : 1;
@@ -436,30 +466,38 @@ class InputTags extends Component {
       this.roundRect(ctx, this.x, this.y, this.width, this.height, 8);
       ctx.stroke();
     }
-    
+
     // Position de départ pour dessiner les tags
     let currentX = this.x + 10;
-    const tagY = this.y + 10;
-    
+    let currentY = this.y + 10;
+    const maxX = this.x + this.width - 10;
+
     // Dessiner les tags
     for (let i = 0; i < this.tags.length; i++) {
-      this.drawTag(ctx, this.tags[i], currentX, tagY);
       const tagWidth = this.measureTagWidth(this.tags[i]);
+
+      // Retour à la ligne si dépassement
+      if (currentX + tagWidth > maxX) {
+        currentX = this.x + 10;
+        currentY += this.tagHeight + this.tagSpacing;
+      }
+
+      this.drawTag(ctx, this.tags[i], currentX, currentY);
       currentX += tagWidth + this.tagSpacing;
     }
-    
-    // Dessiner le texte en cours
+
+    // Dessiner le texte en cours ou placeholder
     if (this.value || (this.focused && this.tags.length === 0)) {
       ctx.fillStyle = this.value ? '#000000' : '#999999';
       ctx.font = `${this.fontSize}px -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      
+
       const displayText = this.value || this.placeholder;
-      const textY = this.y + this.height / 2;
-      
+      const textY = currentY + this.tagHeight / 2;
+
       ctx.fillText(displayText, currentX, textY);
-      
+
       // Curseur
       if (this.focused && this.cursorVisible) {
         const textWidth = ctx.measureText(this.value).width;
@@ -467,7 +505,7 @@ class InputTags extends Component {
         ctx.fillRect(currentX + textWidth, textY - this.fontSize / 2, 2, this.fontSize);
       }
     }
-    
+
     ctx.restore();
   }
 
