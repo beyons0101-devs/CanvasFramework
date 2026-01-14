@@ -51,7 +51,7 @@ Canvas UI Engine takes a **radically different approach**:
 
 ## 📦 Installation
 
-```bash
+bash
 - npm install canvas-ui-engine
 - npm install -D vite
 
