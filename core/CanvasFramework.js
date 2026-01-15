@@ -50,6 +50,7 @@ import ImageCarousel from '../components/ImageCarousel.js';
 import PasswordInput from '../components/PasswordInput.js';
 import InputTags from '../components/InputTags.js';
 import InputDatalist from '../components/InputDatalist.js';
+import Banner from '../components/Banner.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -122,6 +123,7 @@ const FIXED_COMPONENT_TYPES = new Set([
   Modal,
   FAB,
   Toast,
+  Banner,
   BottomSheet,
   ContextMenu,
   OpenStreetMap,
@@ -187,16 +189,17 @@ class CanvasFramework {
 	this._lastFpsTime = performance.now();
 	this.showFps = options.showFps || false; // false par défaut
 	this.debbug = options.debug || false; // false par défaut (et correction de la faute de frappe)
-    // Worker pour multithreading
-    this.worker = new Worker(new URL('./CanvasWorker.js', import.meta.url), { type: 'module' });
-    this.worker.onmessage = this.handleWorkerMessage.bind(this);
-    this.worker.postMessage({ type: 'INIT', payload: { components: [] } });
-
-    // Worker logique pour calculs séparés
+    
+	// Worker pour multithreading Canvas Worker
+    this.worker = this.createCanvasWorker();
+	this.worker.onmessage = this.handleWorkerMessage.bind(this);
+	this.worker.postMessage({ type: 'INIT', payload: { components: [] } });
 	
-	this.logicWorker = new Worker(new URL('./LogicWorker.js', import.meta.url), { type: 'module' });
-    this.logicWorker.onmessage = this.handleLogicWorkerMessage.bind(this);
-    this.logicWorkerState = {};
+	// Logic Worker
+	this.logicWorker = this.createLogicWorker();
+	this.logicWorker.onmessage = this.handleLogicWorkerMessage.bind(this);
+	this.logicWorkerState = {};
+	this.logicWorker.postMessage({ type: 'SET_STATE', payload: this.state });
 
     // Envoyer l'état initial au worker
     this.logicWorker.postMessage({ type: 'SET_STATE', payload: this.state });
@@ -254,6 +257,74 @@ class CanvasFramework {
       get: () => originalFillStyle.get.call(ctx)
     });
   }	
+  
+  createCanvasWorker() {
+    const workerCode = `
+      let components = [];
+      
+      self.onmessage = function(e) {
+        const { type, payload } = e.data;
+        
+        switch(type) {
+          case 'INIT':
+            components = payload.components;
+            self.postMessage({ type: 'READY' });
+            break;
+            
+          case 'UPDATE_LAYOUT':
+            const updated = components.map(comp => {
+              if (comp.dynamicHeight && comp.calculateHeight) {
+                comp.height = comp.calculateHeight();
+              }
+              return { id: comp.id, height: comp.height };
+            });
+            self.postMessage({ type: 'LAYOUT_DONE', payload: updated });
+            break;
+            
+          case 'SCROLL_INERTIA':
+            let { offset, velocity, friction, maxScroll } = payload;
+            offset += velocity;
+            offset = Math.max(Math.min(offset, 0), -maxScroll);
+            velocity *= friction;
+            self.postMessage({ type: 'SCROLL_UPDATED', payload: { offset, velocity } });
+            break;
+        }
+      };
+    `;
+  
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    return new Worker(URL.createObjectURL(blob));
+  }
+
+  createLogicWorker() {
+    const workerCode = `
+      let state = {};
+    
+      self.onmessage = async function(e) {
+        const { type, payload } = e.data;
+      
+        switch(type) {
+          case 'SET_STATE':
+            state = payload;
+            self.postMessage({ type: 'STATE_UPDATED', payload: state });
+            break;
+          
+          case 'EXECUTE':
+            try {
+              const fn = new Function('state', 'args', payload.fnString);
+              const result = await fn(state, payload.args);
+              self.postMessage({ type: 'EXECUTION_RESULT', payload: result });
+            } catch (err) {
+              self.postMessage({ type: 'EXECUTION_ERROR', payload: err.message });
+            }
+            break;
+        }
+      };
+    `;
+  
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    return new Worker(URL.createObjectURL(blob));
+  }
 
   // Set Theme dynamique
   setTheme(theme) {
