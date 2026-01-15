@@ -51,6 +51,7 @@ import ImageCarousel from '../components/ImageCarousel.js';
 import PasswordInput from '../components/PasswordInput.js';
 import InputTags from '../components/InputTags.js';
 import InputDatalist from '../components/InputDatalist.js';
+import Banner from '../components/Banner.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -129,6 +130,7 @@ const Components = {
   Row,
   Column,
   Positioned,
+  Banner,
   Stack
 };
 
