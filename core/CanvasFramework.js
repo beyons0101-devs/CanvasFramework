@@ -67,6 +67,7 @@ import GeoLocationService from '../utils/GeoLocationService.js';
 import WebSocketClient from '../utils/WebSocketClient.js';
 import AnimationEngine from '../utils/AnimationEngine.js';
 import CryptoManager from '../utils/CryptoManager.js';
+import NotificationManager from '../utils/NotificationManager.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -1294,6 +1295,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
