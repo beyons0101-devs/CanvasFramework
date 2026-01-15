@@ -58,6 +58,7 @@ export { default as ImageCarousel } from './components/ImageCarousel.js';
 export { default as PasswordInput } from './components/PasswordInput.js';
 export { default as InputTags } from './components/InputTags.js';
 export { default as InputDatalist } from './components/InputDatalist.js';
+export { default as Banner } from './components/Banner.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -99,8 +100,7 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.17';
-
+export const VERSION = '0.3.19';
 
 
 
