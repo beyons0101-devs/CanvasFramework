@@ -113,6 +113,20 @@ export const darkTheme = {
   border: '#333333'
 };
 
+const FIXED_COMPONENT_TYPES = new Set([
+  AppBar,
+  BottomNavigationBar,
+  Drawer,
+  Dialog,
+  Modal,
+  FAB,
+  Toast,
+  BottomSheet,
+  ContextMenu,
+  OpenStreetMap,
+  SelectDialog
+]);
+
 /**
  * Framework principal pour créer des interfaces utilisateur basées sur Canvas
  * @class
@@ -819,19 +833,8 @@ class CanvasFramework {
   }
 
   checkComponentsAtPosition(x, y, eventType) {
-    const isFixedComponent = (comp) => {
-      return comp instanceof AppBar || 
-             comp instanceof BottomNavigationBar || 
-             comp instanceof Drawer || 
-             comp instanceof Dialog ||
-             comp instanceof Modal ||
-			 comp instanceof FAB ||
-			 comp instanceof Toast ||
-             comp instanceof BottomSheet ||
-             comp instanceof ContextMenu ||
-			 comp instanceof OpenStreetMap ||
-             comp instanceof SelectDialog;
-    };
+    const isFixedComponent = (comp) =>
+    FIXED_COMPONENT_TYPES.has(comp.constructor);
     
     for (let i = this.components.length - 1; i >= 0; i--) {
       const comp = this.components[i];
@@ -859,7 +862,7 @@ class CanvasFramework {
                 switch (eventType) {
                   case 'start':
                     child.pressed = true;
-                    if (child.onPress) child.onPress(relativeX, relativeY);
+                    if (child.onPress) child.onPress?.(relativeX, relativeY);
                     break;
                     
                   case 'move':
@@ -867,7 +870,7 @@ class CanvasFramework {
                       child.hovered = true;
                       if (child.onHover) child.onHover();
                     }
-                    if (child.onMove) child.onMove(relativeX, relativeY);
+                    if (child.onMove) child.onMove?.(relativeX, relativeY);
                     break;
                     
                   case 'end':
@@ -889,7 +892,7 @@ class CanvasFramework {
                       } else if (child.onClick) {
                         child.onClick();
                       } else if (child.onPress) {
-                        child.onPress(relativeX, relativeY);
+                        child.onPress?.(relativeX, relativeY);
                       }
                     }
                     break;
@@ -948,8 +951,18 @@ class CanvasFramework {
       }
     }
   }
-
+  
   getMaxScroll() {
+    let maxY = 0;
+    for (const comp of this.components) {
+      if (this.isFixedComponent(comp) || !comp.visible) continue;
+      const bottom = comp.y + comp.height;
+      if (bottom > maxY) maxY = bottom;
+    }
+    return Math.max(0, maxY - this.height + 50);
+  }
+	
+  /*getMaxScroll() {
     let maxY = 0;
     for (let comp of this.components) {
       if (!this.isFixedComponent(comp)) {
@@ -957,7 +970,7 @@ class CanvasFramework {
       }
     }
     return Math.max(0, maxY - this.height + 50);
-  }
+  }*/
 
   handleResize() {
     // Pour WebGL, NE PAS redimensionner automatiquement
@@ -1251,17 +1264,7 @@ class CanvasFramework {
   }
 	
   isFixedComponent(comp) {
-    return comp instanceof AppBar || 
-           comp instanceof BottomNavigationBar || 
-           comp instanceof Drawer || 
-           comp instanceof Dialog ||
-           comp instanceof Modal ||
-           comp instanceof FAB ||
-		   comp instanceof Toast ||
-		   comp instanceof BottomSheet ||
-           comp instanceof ContextMenu ||
-		   comp instanceof OpenStreetMap ||
-           comp instanceof SelectDialog;
+  	return FIXED_COMPONENT_TYPES.has(comp.constructor);
   }
   
   showToast(message, duration = 3000) {
@@ -1277,3 +1280,4 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
