@@ -937,7 +937,7 @@ class CanvasFramework {
 						   other instanceof PasswordInput ||
 						   other instanceof InputTags ||
 						   other instanceof InputDatalist) &&
-						  other !== child &&
+						  other !== comp &&
 						  other.focused
 						) {
 						  other.focused = false;
@@ -1294,5 +1294,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
