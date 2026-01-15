@@ -188,12 +188,13 @@ class CanvasFramework {
 	this.showFps = options.showFps || false; // false par défaut
 	this.debbug = options.debug || false; // false par défaut (et correction de la faute de frappe)
     // Worker pour multithreading
-    this.worker = new Worker('./CanvasWorker.js', { type: 'module' });
+    this.worker = new Worker(new URL('./CanvasWorker.js', import.meta.url), { type: 'module' });
     this.worker.onmessage = this.handleWorkerMessage.bind(this);
     this.worker.postMessage({ type: 'INIT', payload: { components: [] } });
 
     // Worker logique pour calculs séparés
-    this.logicWorker = new Worker('./LogicWorker.js', { type: 'module' });
+	
+	this.logicWorker = new Worker(new URL('./LogicWorker.js', import.meta.url), { type: 'module' });
     this.logicWorker.onmessage = this.handleLogicWorkerMessage.bind(this);
     this.logicWorkerState = {};
 
@@ -1295,7 +1296,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
-
