@@ -97,19 +97,27 @@ class RadioButton extends Component {
         ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
         ctx.fill();
       }
-    } else {
-      // Cupertino
-      ctx.strokeStyle = this.checked ? '#007AFF' : '#C7C7CC';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
-      ctx.stroke();
-      
+     } else {
+      // Cupertino (iOS style)
       if (this.checked) {
+        // Cercle bleu rempli
         ctx.fillStyle = '#007AFF';
         ctx.beginPath();
-        ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
         ctx.fill();
+        
+        // Point blanc au centre
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Cercle gris clair
+        ctx.strokeStyle = '#D1D1D6';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
+        ctx.stroke();
       }
     }
     
