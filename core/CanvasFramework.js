@@ -879,11 +879,18 @@ class CanvasFramework {
                       
                       if (child instanceof Input || child instanceof PasswordInput || child instanceof InputTags || child instanceof InputDatalist) {
                         for (let other of this.components) {
-                          if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags || other instanceof InputDatalist && other !== child && other.focused) {
-                            other.focused = false;
-                            other.cursorVisible = false;
-                            if (other.onBlur) other.onBlur();
-                          }
+                          if (
+							  (other instanceof Input ||
+							   other instanceof PasswordInput ||
+							   other instanceof InputTags ||
+							   other instanceof InputDatalist) &&
+							  other !== child &&
+							  other.focused
+							) {
+							  other.focused = false;
+							  other.cursorVisible = false;
+							  other.onBlur?.();
+							}
                         }
                         
                         child.focused = true;
@@ -925,11 +932,18 @@ class CanvasFramework {
                 
                 if (comp instanceof Input || comp instanceof PasswordInput || comp instanceof InputTags || comp instanceof InputDatalist) {
                   for (let other of this.components) {
-                    if (other instanceof Input || other instanceof PasswordInput || other instanceof InputTags || other instanceof InputDatalist && other !== comp && other.focused) {
-                      other.focused = false;
-                      other.cursorVisible = false;
-                      if (other.onBlur) other.onBlur();
-                    }
+                    if (
+						  (other instanceof Input ||
+						   other instanceof PasswordInput ||
+						   other instanceof InputTags ||
+						   other instanceof InputDatalist) &&
+						  other !== child &&
+						  other.focused
+						) {
+						  other.focused = false;
+						  other.cursorVisible = false;
+						  other.onBlur?.();
+						}
                   }
                   
                   comp.focused = true;
@@ -1280,4 +1294,5 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
