@@ -1,291 +1,414 @@
-// components/Tabs.js
 import Component from '../core/Component.js';
 
 /**
- * Onglets avec contenu inline + animation de transition
- * Material & Cupertino
+ * Onglets de navigation avec support Material & Cupertino
+ * @class
+ * @extends Component
  */
 class Tabs extends Component {
   constructor(framework, options = {}) {
     super(framework, options);
-
+    
     this.tabs = options.tabs || [];
     this.selectedIndex = options.selectedIndex || 0;
     this.onChange = options.onChange;
     this.platform = framework.platform;
-    this.height = options.height || 48;
-    this.indicatorColor = options.indicatorColor || (this.platform === 'material' ? '#6200EE' : '#007AFF');
-    this.textColor = options.textColor || '#000000';
+    this.height = options.height || 56;
+    
+    this.indicatorColor = options.indicatorColor || 
+      (this.platform === 'material' ? '#6200EE' : '#007AFF');
+    this.textColor = options.textColor || 
+      (this.platform === 'material' ? '#000000' : '#8E8E93');
     this.selectedTextColor = options.selectedTextColor || this.indicatorColor;
-
-    // Ripple Material
+    
+    // Ripple pour Material
     this.ripples = [];
     this.animationFrame = null;
     this.lastAnimationTime = 0;
-
-    // Éviter double événement
-    this.lastEventTime = 0;
-    this.lastEventCoords = { x: -1, y: -1 };
-
+    
+    // Animation pour Cupertino
+    this.pressedTabIndex = -1;
+    this.pressAnimation = 0;
+    
+    // ✅ Structure: tableau de tableaux d'enfants
+    // tabChildren[0] = [enfants du tab 0]
+    // tabChildren[1] = [enfants du tab 1]
+    this.tabChildren = this.tabs.map(() => []);
+    
+    // ✅ Configuration: nombre d'enfants par tab
+    // Si défini, distribue automatiquement les enfants
+    // Ex: childrenPerTab = [3, 2] => 3 enfants pour tab 0, 2 pour tab 1
+    this.childrenPerTab = options.childrenPerTab || null;
+    this.currentTabIndex = 0;
+    this.childAddCount = 0; // Compteur d'enfants ajoutés
+    
+    // Gestionnaire de clic
     this.onPress = this.handlePress.bind(this);
-
-    // Enfants actifs
-    this.activeChildren = this.tabs[this.selectedIndex]?.children || [];
-    this.nextChildren = null; // Pour animation
-    this.animProgress = 1; // 0 → transition start, 1 → transition end
-
-    this.mountActiveChildren();
+    
+    // Position par défaut
+    this.position = options.position || (this.platform === 'cupertino' ? 'bottom' : 'top');
+    
+    if (this.position === 'bottom' && !options.y) {
+      this.y = framework.height - this.height;
+    } else if (this.position === 'top' && !options.y) {
+      this.y = options.appbar || 0;
+    }
+    
+    // Zone de contenu (sous les tabs)
+    this.contentY = this.y + this.height;
+    this.contentHeight = framework.height - this.height;
   }
 
-  // ===================== Montage enfants =====================
-  mountActiveChildren() {
-    if (this.framework?.remove) {
-      for (let child of this.activeChildren) {
-        this.framework.remove(child);
-      }
-    }
-
-    this.activeChildren = this.tabs[this.selectedIndex]?.children || [];
-    if (this.framework?.add) {
-      for (let child of this.activeChildren) {
-        this.framework.add(child);
-        child.x = child.x ?? this.x;
-        child.y = child.y ?? this.getContentY();
-        child.width = child.width ?? this.width;
-        child.height = child.height ?? this.getContentHeight();
-      }
+  /**
+   * ✅ Définit le tab actuel pour l'ajout d'enfants (appelé par UIBuilder)
+   * @param {number} tabIndex - Index du tab
+   */
+  setCurrentTab(tabIndex) {
+    if (tabIndex >= 0 && tabIndex < this.tabChildren.length) {
+      this.currentTabIndex = tabIndex;
     }
   }
 
-  getContentY() {
-    return this.platform === 'cupertino' ? this.y : this.y + this.height;
-  }
-
-  getContentHeight() {
-    return (this.framework?.height ?? 400) - this.height;
-  }
-
-  // ===================== Animation =====================
-  startAnimation() {
-    if (this.animationFrame) return;
-    const animate = (timestamp) => {
-      if (!this.lastAnimationTime) this.lastAnimationTime = timestamp;
-      const delta = timestamp - this.lastAnimationTime;
-      this.lastAnimationTime = timestamp;
-
-      if (this.animProgress < 1) {
-        this.animProgress += delta / 200; // 200ms pour transition
-        if (this.animProgress >= 1) {
-          this.animProgress = 1;
-          // Fin transition
-          if (this.nextChildren) {
-            this.activeChildren = this.nextChildren;
-            this.nextChildren = null;
-          }
-        }
-        this.requestRender();
-        this.animationFrame = requestAnimationFrame(animate);
-      } else {
-        this.animationFrame = null;
+  /**
+   * ✅ Ajoute un enfant au tab en cours
+   * Distribution automatique: divise les enfants équitablement entre les tabs
+   * @param {Component} child - Composant enfant
+   * @returns {Component} L'enfant ajouté
+   */
+  add(child) {
+    // Coordonnées relatives à la zone de contenu
+    child.x = child.x || 0;
+    child.y = child.y || 0;
+    
+    // Dimensions par défaut
+    if (!child.width) child.width = this.framework.width;
+    
+    // Marquer l'enfant comme appartenant à ce Tabs
+    child.parentTabs = this;
+    
+    // ✅ Calculer quel tab doit recevoir cet enfant
+    // On distribue équitablement les enfants entre les tabs
+    const totalChildren = this.tabChildren.reduce((sum, arr) => sum + arr.length, 0);
+    const childrenPerTab = Math.ceil(totalChildren / this.tabs.length);
+    
+    // Trouver le premier tab qui n'est pas encore plein
+    let targetTabIndex = 0;
+    for (let i = 0; i < this.tabChildren.length; i++) {
+      if (this.tabChildren[i].length < childrenPerTab) {
+        targetTabIndex = i;
+        break;
       }
-    };
-    this.animationFrame = requestAnimationFrame(animate);
+      // Si tous les tabs ont childrenPerTab enfants, recommencer à 0
+      if (i === this.tabChildren.length - 1) {
+        targetTabIndex = totalChildren % this.tabs.length;
+      }
+    }
+    
+    // Ajouter au tableau du tab calculé
+    this.tabChildren[targetTabIndex].push(child);
+    
+    // Visibilité selon le tab sélectionné
+    child.visible = (targetTabIndex === this.selectedIndex);
+    
+    return child;
   }
 
-  requestRender() {
-    this.framework?.requestRender?.();
+  /**
+   * ✅ Met à jour la visibilité des enfants selon l'onglet sélectionné
+   */
+  updateChildrenVisibility() {
+    this.tabChildren.forEach((children, tabIdx) => {
+      const isVisible = (tabIdx === this.selectedIndex);
+      children.forEach(child => {
+        child.visible = isVisible;
+      });
+    });
   }
 
-  destroy() {
-    if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
-    super.destroy?.();
+  /**
+   * ✅ Retourne tous les enfants du tab sélectionné
+   */
+  getActiveChildren() {
+    return this.tabChildren[this.selectedIndex] || [];
   }
 
-  // ===================== Gestion tab =====================
   handlePress(x, y) {
-    // Vérifier enfants actifs
-    for (let child of this.activeChildren) {
-      if (child.isPointInside?.(x, y)) {
-        if (child.onPress?.(x, y)) return true;
-      }
+    // D'abord vérifier les clics sur les enfants
+    if (y > this.y + this.height && this.checkChildClick(x, y)) {
+      return;
     }
-
-    const now = performance.now();
-    const deltaTime = now - this.lastEventTime;
-    const deltaX = Math.abs(x - this.lastEventCoords.x);
-    const deltaY = Math.abs(y - this.lastEventCoords.y);
-    if (deltaX < 2 && deltaY < 2 && deltaTime < 50) return;
-
-    this.lastEventTime = now;
-    this.lastEventCoords = { x, y };
-
+    
+    // Ensuite vérifier les clics sur la barre de tabs
+    if (!this.isPointInside(x, y)) return;
+    
     const tabWidth = this.width / this.tabs.length;
-    const tabsY = this.platform === 'cupertino' ? this.y + (this.framework?.height ?? 400) - this.height : this.y;
     const index = Math.floor((x - this.x) / tabWidth);
-
-    if (index >= 0 && index < this.tabs.length && y >= tabsY && y <= tabsY + this.height) {
-      // Ripple Material
-      if (this.platform === 'material') {
-        const rippleCenterX = this.x + index * tabWidth + tabWidth / 2;
-        const maxRippleRadius = Math.min(tabWidth * 0.6, this.height * 0.8);
-        this.ripples.push({
-          x: rippleCenterX,
-          y: tabsY + this.height / 2,
-          radius: 0,
-          maxRadius: maxRippleRadius,
-          opacity: 1,
-          createdAt: now,
-          tabIndex: index
-        });
-        if (!this.animationFrame) this.startRippleAnimation();
-        this.requestRender();
-      }
-
-      // Changement d'onglet avec animation
-      if (index !== this.selectedIndex) {
-        this.selectedIndex = index;
-        this.nextChildren = this.tabs[index]?.children || [];
-        // Position + dimensions
-        if (this.framework?.add) {
-          for (let child of this.nextChildren) {
-            this.framework.add(child);
-            child.x = child.x ?? this.x;
-            child.y = child.y ?? this.getContentY();
-            child.width = child.width ?? this.width;
-            child.height = child.height ?? this.getContentHeight();
-          }
-        }
-        this.animProgress = 0;
-        this.startAnimation();
-        this.onChange?.(index, this.tabs[index]);
-      }
-      return true;
+    
+    if (index < 0 || index >= this.tabs.length) return;
+    
+    // Ripple pour Material
+    if (this.platform === 'material') {
+      const rippleCenterX = this.x + index * tabWidth + tabWidth / 2;
+      const maxRippleRadius = Math.min(tabWidth * 0.6, this.height * 0.8);
+      
+      this.ripples.push({
+        x: rippleCenterX,
+        y: this.y + this.height / 2,
+        radius: 0,
+        maxRadius: maxRippleRadius,
+        opacity: 1
+      });
+      
+      if (!this.animationFrame) this.startRippleAnimation();
     }
+    // Animation Cupertino
+    else if (this.platform === 'cupertino') {
+      this.pressedTabIndex = index;
+      this.pressAnimation = 1;
+      this.requestRender();
+      setTimeout(() => this.animatePressRelease(), 100);
+    }
+    
+    // Changement d'onglet
+    if (index !== this.selectedIndex) {
+      this.selectedIndex = index;
+      this.updateChildrenVisibility();
+      if (this.onChange) this.onChange(index, this.tabs[index]);
+    }
+    
+    this.requestRender();
+  }
+
+  /**
+   * ✅ Vérifie les clics sur les enfants du tab actif
+   */
+  checkChildClick(x, y) {
+    const adjustedY = y - (this.framework.scrollOffset || 0);
+    const activeChildren = this.getActiveChildren();
+    
+    // Parcourir en ordre inverse (derniers ajoutés = au dessus)
+    for (let i = activeChildren.length - 1; i >= 0; i--) {
+      const child = activeChildren[i];
+      
+      if (!child.visible) continue;
+      
+      // Calculer les coordonnées absolues de l'enfant
+      const childX = this.x + child.x;
+      const childY = this.contentY + child.y;
+      
+      // Vérifier si le clic est dans l'enfant
+      if (adjustedY >= childY && 
+          adjustedY <= childY + child.height &&
+          x >= childX && 
+          x <= childX + child.width) {
+        
+        // Si l'enfant a un onClick ou onPress, le déclencher
+        if (child.onClick) {
+          child.onClick();
+          return true;
+        } else if (child.onPress) {
+          child.onPress(x, adjustedY);
+          return true;
+        }
+      }
+    }
+    
     return false;
   }
 
-  isPointInside(x, y) {
-    const tabsY = this.platform === 'cupertino' ? this.y + (this.framework?.height ?? 400) - this.height : this.y;
-    return x >= this.x && x <= this.x + this.width &&
-           y >= tabsY && y <= tabsY + this.height;
+  animatePressRelease() {
+    let startTime = null;
+    const duration = 150;
+    
+    const animate = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      
+      this.pressAnimation = 1 - progress;
+      this.requestRender();
+      
+      if (progress < 1) requestAnimationFrame(animate);
+      else {
+        this.pressAnimation = 0;
+        this.pressedTabIndex = -1;
+      }
+    };
+    
+    requestAnimationFrame(animate);
   }
 
-  // ===================== Draw =====================
+  isPointInside(x, y) {
+    return x >= this.x && x <= this.x + this.width && 
+           y >= this.y && y <= this.y + this.height;
+  }
+
+  startRippleAnimation() {
+    const animate = (timestamp) => {
+      if (!this.lastAnimationTime) this.lastAnimationTime = timestamp;
+      const deltaTime = timestamp - this.lastAnimationTime;
+      this.lastAnimationTime = timestamp;
+      
+      let needsUpdate = false;
+      
+      for (let i = this.ripples.length - 1; i >= 0; i--) {
+        const ripple = this.ripples[i];
+        
+        if (ripple.radius < ripple.maxRadius) 
+          ripple.radius += (ripple.maxRadius / 300) * deltaTime;
+        
+        if (ripple.radius >= ripple.maxRadius * 0.4) {
+          ripple.opacity -= (0.003 * deltaTime);
+          if (ripple.opacity < 0) ripple.opacity = 0;
+        }
+        
+        if (ripple.opacity <= 0 && ripple.radius >= ripple.maxRadius * 0.95) 
+          this.ripples.splice(i, 1);
+        
+        needsUpdate = true;
+      }
+      
+      if (needsUpdate) this.requestRender();
+      
+      if (this.ripples.length > 0) 
+        this.animationFrame = requestAnimationFrame(animate);
+      else 
+        this.animationFrame = null;
+    };
+    
+    if (this.ripples.length && !this.animationFrame) 
+      this.animationFrame = requestAnimationFrame(animate);
+  }
+
+  requestRender() {
+    if (this.framework && this.framework.requestRender) 
+      this.framework.requestRender();
+  }
+
+  /**
+   * ✅ Dessine les tabs et les enfants du tab actif
+   */
   draw(ctx) {
     ctx.save();
-    const drawTabsTop = this.platform !== 'cupertino';
-    const tabsY = drawTabsTop ? this.y : (this.framework?.height ?? 400) - this.height;
-
-    const contentY = drawTabsTop ? this.y + this.height : this.y;
-    const contentHeight = this.getContentHeight();
-
-    // Dessiner enfants actifs avec animation slide/fade
-    if (this.animProgress < 1 && this.nextChildren) {
-      const offset = (1 - this.animProgress) * this.width * (this.selectedIndex > 0 ? -1 : 1);
-      const alpha = this.animProgress;
-
-      // Enfants sortants
-      for (let child of this.activeChildren) {
-        if (child.draw) {
-          child.x = child.x ?? this.x + offset;
-          child.y = child.y ?? contentY;
-          child.width = child.width ?? this.width;
-          child.height = child.height ?? contentHeight;
-          ctx.globalAlpha = 1 - alpha;
-          child.draw(ctx);
-        }
-      }
-
-      // Enfants entrants
-      for (let child of this.nextChildren) {
-        if (child.draw) {
-          child.x = child.x ?? this.x + offset + (this.selectedIndex > 0 ? this.width : -this.width);
-          child.y = child.y ?? contentY;
-          child.width = child.width ?? this.width;
-          child.height = child.height ?? contentHeight;
-          ctx.globalAlpha = alpha;
-          child.draw(ctx);
-        }
-      }
-
-      ctx.globalAlpha = 1;
-    } else {
-      // Enfants stables
-      for (let child of this.activeChildren) {
-        if (child.draw) {
-          child.x = child.x ?? this.x;
-          child.y = child.y ?? contentY;
-          child.width = child.width ?? this.width;
-          child.height = child.height ?? contentHeight;
-          child.draw(ctx);
-        }
-      }
+    
+    // ===== DESSINER LA BARRE DE TABS =====
+    
+    // Background
+    ctx.fillStyle = this.platform === 'material' ? '#FFF' : '#F2F2F7';
+    ctx.fillRect(this.x, this.y, this.width, this.height);
+    
+    if (this.platform === 'material') {
+      ctx.strokeStyle = '#E0E0E0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y + this.height);
+      ctx.lineTo(this.x + this.width, this.y + this.height);
+      ctx.stroke();
     }
-
-    // Background tabs
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(this.x, tabsY, this.width, this.height);
-
-    // Bordure
-    ctx.strokeStyle = '#E0E0E0';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(this.x, tabsY + this.height);
-    ctx.lineTo(this.x + this.width, tabsY + this.height);
-    ctx.stroke();
-
+    
     const tabWidth = this.width / this.tabs.length;
-    if (this.platform === 'material') this.drawRipples(ctx, tabWidth, tabsY);
-
-    // Dessiner tabs
+    
+    // Ripples
+    if (this.platform === 'material') this.drawRipples(ctx, tabWidth);
+    
     for (let i = 0; i < this.tabs.length; i++) {
       const tab = this.tabs[i];
       const tabX = this.x + i * tabWidth;
       const isSelected = i === this.selectedIndex;
+      
+      // Cupertino pressed effect
+      if (this.platform === 'cupertino' && i === this.pressedTabIndex) {
+        ctx.fillStyle = `rgba(0,122,255,${0.1 * this.pressAnimation})`;
+        ctx.fillRect(tabX, this.y, tabWidth, this.height);
+      }
+      
+      // Indicators
+      if (this.platform === 'cupertino' && isSelected) {
+        ctx.fillStyle = '#007AFF';
+        ctx.fillRect(tabX + tabWidth/2 - 15, this.y + this.height - 2, 30, 2);
+      }
+      
       const color = isSelected ? this.selectedTextColor : this.textColor;
-
+      
+      // Icon
       if (tab.icon) {
-        ctx.font = '20px sans-serif';
+        ctx.font = '24px -apple-system, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = color;
-        ctx.fillText(tab.icon, tabX + tabWidth / 2, tabsY + 16);
+        const iconY = this.platform === 'material' ? this.y + 18 : this.y + 20;
+        ctx.fillText(tab.icon, tabX + tabWidth/2, iconY);
       }
-
-      ctx.font = `${isSelected ? 'bold ' : ''}14px -apple-system, Roboto, sans-serif`;
+      
+      // Label
+      const fontSize = this.platform === 'material' ? 14 : 12;
+      const fontWeight = isSelected ? '600' : '400';
+      ctx.font = `${fontWeight} ${fontSize}px -apple-system, Roboto, sans-serif`;
       ctx.fillStyle = color;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const labelY = tab.icon ? tabsY + 36 : tabsY + this.height / 2;
-      ctx.fillText(tab.label, tabX + tabWidth / 2, labelY);
-
+      
+      const labelY = this.platform === 'material' 
+        ? (tab.icon ? this.y + 36 : this.y + this.height / 2)
+        : (tab.icon ? this.y + 42 : this.y + this.height / 2);
+      
+      ctx.fillText(tab.label, tabX + tabWidth/2, labelY);
+      
+      // Material indicator
       if (isSelected && this.platform === 'material') {
         ctx.fillStyle = this.indicatorColor;
-        ctx.fillRect(tabX, tabsY + this.height - 2, tabWidth, 2);
+        ctx.fillRect(tabX, this.y + this.height - 3, tabWidth, 3);
       }
     }
-
+    
     ctx.restore();
+    
+    // ===== DESSINER LES ENFANTS DU TAB ACTIF =====
+    const activeChildren = this.getActiveChildren();
+    
+    for (let child of activeChildren) {
+      if (child.visible) {
+        ctx.save();
+        
+        // Sauvegarder les coordonnées originales
+        const originalX = child.x;
+        const originalY = child.y;
+        
+        // Ajuster les coordonnées pour être absolues
+        child.x = this.x + originalX;
+        child.y = this.contentY + originalY;
+        
+        // Dessiner l'enfant
+        child.draw(ctx);
+        
+        // Restaurer les coordonnées originales
+        child.x = originalX;
+        child.y = originalY;
+        
+        ctx.restore();
+      }
+    }
   }
 
-  drawRipples(ctx, tabWidth, tabsY) {
+  drawRipples(ctx, tabWidth) {
     ctx.save();
     ctx.beginPath();
-    ctx.rect(this.x, tabsY, this.width, this.height);
+    ctx.rect(this.x, this.y, this.width, this.height);
     ctx.clip();
+    
     for (let ripple of this.ripples) {
       ctx.globalAlpha = ripple.opacity;
-      ctx.fillStyle = this.indicatorColor || '#6200EE';
+      ctx.fillStyle = this.indicatorColor;
       ctx.beginPath();
-      ctx.arc(ripple.x, tabsY + this.height / 2, ripple.radius, 0, Math.PI * 2);
+      ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI*2);
       ctx.fill();
     }
+    
     ctx.restore();
   }
 
-  _resize(width) {
-    this.width = width;
-    this.requestRender();
+  destroy() {
+    if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
+    if (super.destroy) super.destroy();
   }
 }
 
