@@ -2,7 +2,8 @@
 import Component from '../core/Component.js';
 
 /**
- * Onglets avec contenu inline pour Material & Cupertino
+ * Onglets avec contenu inline + animation de transition
+ * Material & Cupertino
  */
 class Tabs extends Component {
   constructor(framework, options = {}) {
@@ -22,34 +23,32 @@ class Tabs extends Component {
     this.animationFrame = null;
     this.lastAnimationTime = 0;
 
-    // Pour éviter les doubles événements
+    // Éviter double événement
     this.lastEventTime = 0;
     this.lastEventCoords = { x: -1, y: -1 };
 
     this.onPress = this.handlePress.bind(this);
 
-    // Enfants actifs (children du tab sélectionné)
+    // Enfants actifs
     this.activeChildren = this.tabs[this.selectedIndex]?.children || [];
+    this.nextChildren = null; // Pour animation
+    this.animProgress = 1; // 0 → transition start, 1 → transition end
 
-    // Monter les enfants initiaux dans le framework
     this.mountActiveChildren();
   }
 
-  // ===================== Montage des enfants =====================
+  // ===================== Montage enfants =====================
   mountActiveChildren() {
-    // Démonter anciens enfants
-    if (this.framework && this.framework.remove) {
+    if (this.framework?.remove) {
       for (let child of this.activeChildren) {
         this.framework.remove(child);
       }
     }
 
-    // Monter les nouveaux enfants
     this.activeChildren = this.tabs[this.selectedIndex]?.children || [];
-    if (this.framework && this.framework.add) {
+    if (this.framework?.add) {
       for (let child of this.activeChildren) {
         this.framework.add(child);
-        // Position et dimensions par défaut
         child.x = child.x ?? this.x;
         child.y = child.y ?? this.getContentY();
         child.width = child.width ?? this.width;
@@ -66,59 +65,45 @@ class Tabs extends Component {
     return (this.framework?.height ?? 400) - this.height;
   }
 
-  // ===================== Ripple =====================
-  startRippleAnimation() {
+  // ===================== Animation =====================
+  startAnimation() {
+    if (this.animationFrame) return;
     const animate = (timestamp) => {
       if (!this.lastAnimationTime) this.lastAnimationTime = timestamp;
-      const deltaTime = timestamp - this.lastAnimationTime;
+      const delta = timestamp - this.lastAnimationTime;
       this.lastAnimationTime = timestamp;
 
-      let needsUpdate = false;
-
-      for (let i = this.ripples.length - 1; i >= 0; i--) {
-        const ripple = this.ripples[i];
-        if (ripple.radius < ripple.maxRadius) {
-          ripple.radius += (ripple.maxRadius / 300) * deltaTime;
-          needsUpdate = true;
+      if (this.animProgress < 1) {
+        this.animProgress += delta / 200; // 200ms pour transition
+        if (this.animProgress >= 1) {
+          this.animProgress = 1;
+          // Fin transition
+          if (this.nextChildren) {
+            this.activeChildren = this.nextChildren;
+            this.nextChildren = null;
+          }
         }
-        if (ripple.radius >= ripple.maxRadius * 0.4) {
-          ripple.opacity -= 0.003 * deltaTime;
-          if (ripple.opacity < 0) ripple.opacity = 0;
-          needsUpdate = true;
-        }
-        if (ripple.opacity <= 0 && ripple.radius >= ripple.maxRadius * 0.95) {
-          this.ripples.splice(i, 1);
-          needsUpdate = true;
-        }
-      }
-
-      if (needsUpdate) this.requestRender();
-
-      if (this.ripples.length > 0) {
+        this.requestRender();
         this.animationFrame = requestAnimationFrame(animate);
       } else {
         this.animationFrame = null;
-        this.lastAnimationTime = 0;
       }
     };
-
-    if (this.ripples.length > 0 && !this.animationFrame) {
-      this.animationFrame = requestAnimationFrame(animate);
-    }
+    this.animationFrame = requestAnimationFrame(animate);
   }
 
   requestRender() {
-    if (this.framework && this.framework.requestRender) this.framework.requestRender();
+    this.framework?.requestRender?.();
   }
 
   destroy() {
     if (this.animationFrame) cancelAnimationFrame(this.animationFrame);
-    if (super.destroy) super.destroy();
+    super.destroy?.();
   }
 
   // ===================== Gestion tab =====================
   handlePress(x, y) {
-    // Vérifier d'abord les enfants actifs
+    // Vérifier enfants actifs
     for (let child of this.activeChildren) {
       if (child.isPointInside?.(x, y)) {
         if (child.onPress?.(x, y)) return true;
@@ -135,7 +120,7 @@ class Tabs extends Component {
     this.lastEventCoords = { x, y };
 
     const tabWidth = this.width / this.tabs.length;
-    const tabsY = this.platform === 'cupertino' ? this.y + this.height : this.y;
+    const tabsY = this.platform === 'cupertino' ? this.y + (this.framework?.height ?? 400) - this.height : this.y;
     const index = Math.floor((x - this.x) / tabWidth);
 
     if (index >= 0 && index < this.tabs.length && y >= tabsY && y <= tabsY + this.height) {
@@ -156,21 +141,31 @@ class Tabs extends Component {
         this.requestRender();
       }
 
-      // Changement d'onglet
+      // Changement d'onglet avec animation
       if (index !== this.selectedIndex) {
         this.selectedIndex = index;
-        this.mountActiveChildren();
-        if (this.onChange) this.onChange(index, this.tabs[index]);
-        this.requestRender();
+        this.nextChildren = this.tabs[index]?.children || [];
+        // Position + dimensions
+        if (this.framework?.add) {
+          for (let child of this.nextChildren) {
+            this.framework.add(child);
+            child.x = child.x ?? this.x;
+            child.y = child.y ?? this.getContentY();
+            child.width = child.width ?? this.width;
+            child.height = child.height ?? this.getContentHeight();
+          }
+        }
+        this.animProgress = 0;
+        this.startAnimation();
+        this.onChange?.(index, this.tabs[index]);
       }
       return true;
     }
-
     return false;
   }
 
   isPointInside(x, y) {
-    const tabsY = this.platform === 'cupertino' ? this.y + this.height : this.y;
+    const tabsY = this.platform === 'cupertino' ? this.y + (this.framework?.height ?? 400) - this.height : this.y;
     return x >= this.x && x <= this.x + this.width &&
            y >= tabsY && y <= tabsY + this.height;
   }
@@ -178,22 +173,56 @@ class Tabs extends Component {
   // ===================== Draw =====================
   draw(ctx) {
     ctx.save();
-
     const drawTabsTop = this.platform !== 'cupertino';
-    const tabsY = drawTabsTop ? this.y : this.y + (this.framework?.height ?? 400) - this.height;
+    const tabsY = drawTabsTop ? this.y : (this.framework?.height ?? 400) - this.height;
 
-    // Dessiner contenu actif
-    for (let child of this.activeChildren) {
-      if (typeof child.draw === 'function') {
-        child.x = child.x ?? this.x;
-        child.y = child.y ?? (drawTabsTop ? this.y + this.height : this.y);
-        child.width = child.width ?? this.width;
-        child.height = child.height ?? this.getContentHeight();
-        child.draw(ctx);
+    const contentY = drawTabsTop ? this.y + this.height : this.y;
+    const contentHeight = this.getContentHeight();
+
+    // Dessiner enfants actifs avec animation slide/fade
+    if (this.animProgress < 1 && this.nextChildren) {
+      const offset = (1 - this.animProgress) * this.width * (this.selectedIndex > 0 ? -1 : 1);
+      const alpha = this.animProgress;
+
+      // Enfants sortants
+      for (let child of this.activeChildren) {
+        if (child.draw) {
+          child.x = child.x ?? this.x + offset;
+          child.y = child.y ?? contentY;
+          child.width = child.width ?? this.width;
+          child.height = child.height ?? contentHeight;
+          ctx.globalAlpha = 1 - alpha;
+          child.draw(ctx);
+        }
+      }
+
+      // Enfants entrants
+      for (let child of this.nextChildren) {
+        if (child.draw) {
+          child.x = child.x ?? this.x + offset + (this.selectedIndex > 0 ? this.width : -this.width);
+          child.y = child.y ?? contentY;
+          child.width = child.width ?? this.width;
+          child.height = child.height ?? contentHeight;
+          ctx.globalAlpha = alpha;
+          child.draw(ctx);
+        }
+      }
+
+      ctx.globalAlpha = 1;
+    } else {
+      // Enfants stables
+      for (let child of this.activeChildren) {
+        if (child.draw) {
+          child.x = child.x ?? this.x;
+          child.y = child.y ?? contentY;
+          child.width = child.width ?? this.width;
+          child.height = child.height ?? contentHeight;
+          child.draw(ctx);
+        }
       }
     }
 
-    // Background
+    // Background tabs
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(this.x, tabsY, this.width, this.height);
 
@@ -206,17 +235,15 @@ class Tabs extends Component {
     ctx.stroke();
 
     const tabWidth = this.width / this.tabs.length;
-
     if (this.platform === 'material') this.drawRipples(ctx, tabWidth, tabsY);
 
-    // Dessiner les tabs
+    // Dessiner tabs
     for (let i = 0; i < this.tabs.length; i++) {
       const tab = this.tabs[i];
       const tabX = this.x + i * tabWidth;
       const isSelected = i === this.selectedIndex;
       const color = isSelected ? this.selectedTextColor : this.textColor;
 
-      // Icône
       if (tab.icon) {
         ctx.font = '20px sans-serif';
         ctx.textAlign = 'center';
@@ -225,7 +252,6 @@ class Tabs extends Component {
         ctx.fillText(tab.icon, tabX + tabWidth / 2, tabsY + 16);
       }
 
-      // Label
       ctx.font = `${isSelected ? 'bold ' : ''}14px -apple-system, Roboto, sans-serif`;
       ctx.fillStyle = color;
       ctx.textAlign = 'center';
@@ -233,7 +259,6 @@ class Tabs extends Component {
       const labelY = tab.icon ? tabsY + 36 : tabsY + this.height / 2;
       ctx.fillText(tab.label, tabX + tabWidth / 2, labelY);
 
-      // Indicateur Material
       if (isSelected && this.platform === 'material') {
         ctx.fillStyle = this.indicatorColor;
         ctx.fillRect(tabX, tabsY + this.height - 2, tabWidth, 2);
@@ -248,7 +273,6 @@ class Tabs extends Component {
     ctx.beginPath();
     ctx.rect(this.x, tabsY, this.width, this.height);
     ctx.clip();
-
     for (let ripple of this.ripples) {
       ctx.globalAlpha = ripple.opacity;
       ctx.fillStyle = this.indicatorColor || '#6200EE';
