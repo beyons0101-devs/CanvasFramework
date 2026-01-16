@@ -117,6 +117,7 @@ export const darkTheme = {
 
 const FIXED_COMPONENT_TYPES = new Set([
   AppBar,
+  Tabs,
   BottomNavigationBar,
   Drawer,
   Dialog,
@@ -1367,6 +1368,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
