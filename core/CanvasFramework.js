@@ -51,6 +51,7 @@ import PasswordInput from '../components/PasswordInput.js';
 import InputTags from '../components/InputTags.js';
 import InputDatalist from '../components/InputDatalist.js';
 import Banner from '../components/Banner.js';
+import Chart from '../components/Chart.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -1368,6 +1369,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
