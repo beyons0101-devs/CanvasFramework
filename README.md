@@ -66,6 +66,19 @@ bash
 npm run dev
 ---
 
+## Devtools
+You can use a new devtools system like this
+
+```
+const app = new CanvasFramework('app-canvas', { 
+  showFps: false,
+  debug: false
+});
+
+app.useWebGL = true;
+app.enableDevTools(true);
+```
+
 ## 🚀 Overview
 
 **Canvas UI Engine** is a **low-level UI engine** that renders the entire user interface using **Canvas 2D or WebGL**, instead of the DOM.
