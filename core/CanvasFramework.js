@@ -52,6 +52,7 @@ import InputTags from '../components/InputTags.js';
 import InputDatalist from '../components/InputDatalist.js';
 import Banner from '../components/Banner.js';
 import Chart from '../components/Chart.js';
+import SliverAppBar from '../components/SliverAppBar.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -70,6 +71,12 @@ import WebSocketClient from '../utils/WebSocketClient.js';
 import AnimationEngine from '../utils/AnimationEngine.js';
 import CryptoManager from '../utils/CryptoManager.js';
 import NotificationManager from '../utils/NotificationManager.js';
+
+// DevTools
+import DevTools from '../utils/DevTools.js';
+import InspectionOverlay from '../utils/InspectionOverlay.js';
+import DevToolsConsole from '../utils/DevToolsConsole.js';
+
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -118,14 +125,15 @@ export const darkTheme = {
 
 const FIXED_COMPONENT_TYPES = new Set([
   AppBar,
-  Tabs,
   BottomNavigationBar,
   Drawer,
   Dialog,
   Modal,
+  Tabs,
   FAB,
   Toast,
   Banner,
+  SliverAppBar,
   BottomSheet,
   ContextMenu,
   OpenStreetMap,
@@ -243,6 +251,96 @@ class CanvasFramework {
     this.setupEventListeners();
     this.setupHistoryListener();
     this.startRenderLoop();
+	
+	this.devTools = new DevTools(this);
+    this.inspectionOverlay = new InspectionOverlay(this);
+    
+    // MODIFICATION: Vérifier explicitement l'option enableDevTools
+    const shouldEnableDevTools = options.enableDevTools === true;
+    
+    if (shouldEnableDevTools) {
+        this.enableDevTools();
+        console.log('DevTools enabled. Press Ctrl+Shift+D to toggle.');
+    }
+  }
+  
+  /**
+   * Active ou désactive les DevTools
+   * @param {boolean} enabled - true pour activer, false pour désactiver
+   */
+  enableDevTools(enabled = true) {
+	if (enabled) {
+		// Créer le DevTools s'il n'existe pas
+		if (!this.devTools) {
+			this.devTools = new DevTools(this);
+		}
+			
+		// Attacher seulement si pas déjà fait
+		if (!this.devTools._isAttached) {
+			this.devTools.attachToFramework();
+			this.devTools._isAttached = true;
+		}
+		
+		// Afficher le bouton
+		if (this.devTools.toggleBtn) {
+			this.devTools.toggleBtn.style.display = 'block';
+		}
+	} else {
+		// Désactiver complètement
+		if (this.devTools) {
+			// Détacher du framework
+			if (this.devTools.detachFromFramework) {
+				this.devTools.detachFromFramework();
+			} else if (this.devTools.cleanup) {
+				this.devTools.cleanup();
+			}
+				
+			// Supprimer de la page DOM
+			if (this.devTools.container && this.devTools.container.parentNode) {
+				this.devTools.container.parentNode.removeChild(this.devTools.container);
+			}
+				
+			if (this.devTools.toggleBtn && this.devTools.toggleBtn.parentNode) {
+				this.devTools.toggleBtn.parentNode.removeChild(this.devTools.toggleBtn);
+			}
+			
+			this.devTools._isAttached = false;
+		}
+	 }
+  }
+  
+  /**
+   * Bascule l'overlay d'inspection
+   */
+  toggleInspection() {
+    this.inspectionOverlay.toggle();
+  }
+  
+  /**
+   * Exécute une commande DevTools
+   */
+  devToolsCommand(command, ...args) {
+    switch (command) {
+      case 'inspect':
+        this.inspectionOverlay.enable();
+        break;
+      case 'performance':
+        this.devTools.switchTab('performance');
+        this.devTools.toggle();
+        break;
+      case 'components':
+        this.devTools.switchTab('components');
+        this.devTools.toggle();
+        break;
+      case 'highlight':
+        if (args[0]) {
+          this.devTools.highlightComponent(args[0]);
+        }
+        break;
+      case 'reflow':
+        this.components.forEach(comp => comp.markDirty());
+        break;
+    }
   }
 
   wrapContext(ctx, theme) {
@@ -1369,8 +1467,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
 
 
 

@@ -52,6 +52,8 @@ import PasswordInput from '../components/PasswordInput.js';
 import InputTags from '../components/InputTags.js';
 import InputDatalist from '../components/InputDatalist.js';
 import Banner from '../components/Banner.js';
+import Chart from '../components/Chart.js';
+import SliverAppBar from '../components/SliverAppBar.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -91,6 +93,7 @@ const Components = {
   Modal,
   Drawer,
   AppBar,
+  SliverAppBar,
   Chip,
   Stepper,
   Accordion,
@@ -131,6 +134,7 @@ const Components = {
   Column,
   Positioned,
   Banner,
+  Chart,
   Stack
 };
 
