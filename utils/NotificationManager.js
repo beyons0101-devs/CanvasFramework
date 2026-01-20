@@ -1,3 +1,4 @@
+
 // NotificationManager.js
 export default class NotificationManager {
   constructor(defaults = {}) {
