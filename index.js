@@ -60,6 +60,7 @@ export { default as InputTags } from './components/InputTags.js';
 export { default as InputDatalist } from './components/InputDatalist.js';
 export { default as Banner } from './components/Banner.js';
 export { default as Chart } from './components/Chart.js';
+export { default as SliverAppBar } from './components/SliverAppBar.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -78,6 +79,7 @@ export { default as WebSocketClient } from './utils/WebSocketClient.js';
 export { default as AnimationEngine } from './utils/AnimationEngine.js';
 export { default as CryptoManager } from './utils/CryptoManager.js';
 export { default as NotificationManager } from './utils/NotificationManager.js';
+export { default as DevTools } from './utils/DevTools.js';
 
 // Features
 export { default as PullToRefresh } from './features/PullToRefresh.js';
@@ -101,20 +103,4 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.19';
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+export const VERSION = '0.3.23';
