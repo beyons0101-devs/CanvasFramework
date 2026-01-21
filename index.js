@@ -62,6 +62,7 @@ export { default as Banner } from './components/Banner.js';
 export { default as Chart } from './components/Chart.js';
 export { default as SliverAppBar } from './components/SliverAppBar.js';
 export { default as AudioPlayer } from './components/AudioPlayer.js';
+export { default as Camera } from './components/Camera.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -105,5 +106,6 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.3.25';
+
 
 
