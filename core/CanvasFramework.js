@@ -133,6 +133,7 @@ const FIXED_COMPONENT_TYPES = new Set([
   Modal,
   Tabs,
   FAB,
+  Camera,
   Toast,
   Banner,
   SliverAppBar,
@@ -1550,4 +1551,5 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
