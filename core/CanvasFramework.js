@@ -178,8 +178,22 @@ class CanvasFramework {
     this.lightTheme = lightTheme;
     this.darkTheme = darkTheme;
     this.theme = lightTheme; // thème par défaut
-    
+     // État actuel + préférence
+    this.themeMode = options.themeMode || 'system'; // 'light', 'dark', 'system'
+    this.userThemeOverride = null; // null = suit system, sinon 'light' ou 'dark'
+
+    // Applique le thème initial
+    this.setupSystemThemeListener();
+	
+	// Récupère override utilisateur
+    const savedOverride = localStorage.getItem('themeOverride');
+    if (savedOverride && ['light', 'dark'].includes(savedOverride)) {
+      this.userThemeOverride = savedOverride;
+      this.themeMode = savedOverride;
+    } 
+
 	this.components = [];
+	this.applyThemeFromSystem();
     this.state = {};
     // NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
     this.useWebGL = options.useWebGL !== false; // true par défaut
@@ -263,6 +277,70 @@ class CanvasFramework {
         this.enableDevTools();
         console.log('DevTools enabled. Press Ctrl+Shift+D to toggle.');
     }
+  }
+  
+  /**
+   * Détecte le thème système et applique si mode = 'system'
+   */
+  applyThemeFromSystem() {
+    if (this.themeMode === 'system') {
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const newTheme = prefersDark ? this.darkTheme : this.lightTheme;
+      this.setTheme(newTheme);
+    } else {
+      // Mode forcé
+      this.setTheme(
+        this.themeMode === 'dark' ? this.darkTheme : this.lightTheme
+      );
+    }
+  }
+
+  /**
+   * Écoute les changements système (ex: utilisateur bascule dark mode)
+   */
+  setupSystemThemeListener() {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  
+    // Ancienne méthode (compatibilité large)
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', (e) => {
+        if (this.themeMode === 'system') {
+          this.applyThemeFromSystem();
+        }
+      });
+    } else {
+      // Anciens navigateurs (rare en 2026)
+      mediaQuery.addListener((e) => {
+        if (this.themeMode === 'system') {
+          this.applyThemeFromSystem();
+        }
+      });
+    }
+  }
+  
+  /**
+   * Change le mode thème
+   * @param {'light'|'dark'|'system'} mode - Mode à appliquer
+   * @param {boolean} [save=true] - Sauvegarder le choix utilisateur ?
+   */
+  setThemeMode(mode, save = true) {
+    if (!['light', 'dark', 'system'].includes(mode)) {
+      console.warn('Mode invalide, valeurs acceptées: light, dark, system');
+      return;
+    }
+
+    this.themeMode = mode;
+
+    if (save && mode !== 'system') {
+      this.userThemeOverride = mode;
+      // Sauvegarde (ex: localStorage ou ton SecureStorage)
+      localStorage.setItem('themeOverride', mode);
+    } else if (mode === 'system') {
+      this.userThemeOverride = null;
+      localStorage.removeItem('themeOverride');
+    }
+
+    this.applyThemeFromSystem();
   }
   
   /**
@@ -431,13 +509,16 @@ class CanvasFramework {
   setTheme(theme) {
     this.theme = theme;
 
-    // Intercepter le context pour remplacer les couleurs globalement
     if (!this.useWebGL) {
       this.wrapContext(this.ctx, theme);
     }
 
-    // marque tous les composants dirty pour redraw
-    for (let comp of this.components) comp.markDirty();
+    // Protège la boucle
+    if (this.components && Array.isArray(this.components)) {
+      this.components.forEach(comp => comp.markDirty());
+    } else {
+      console.warn('[setTheme] components pas encore initialisé');
+    }
   }
 	
   // Switch Theme
@@ -1468,7 +1549,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
-
