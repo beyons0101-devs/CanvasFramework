@@ -54,6 +54,7 @@ import InputDatalist from '../components/InputDatalist.js';
 import Banner from '../components/Banner.js';
 import Chart from '../components/Chart.js';
 import SliverAppBar from '../components/SliverAppBar.js';
+import Camera from '../components/Camera.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -110,6 +111,7 @@ const Components = {
   ContextMenu,
   Checkbox,
   Toast,
+  Camera,
   NumberInput,
   TextField,
   SelectDialog,
@@ -253,5 +255,6 @@ ui.stack = ui.stack || ((props = {}, children = []) =>
 
 ui.grid = ui.grid || ((props = {}, children = []) =>
   ui._create('Grid', props, Array.isArray(children) ? children : [children]));
+
 
 export default ui;
