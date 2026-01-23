@@ -55,6 +55,7 @@ import Chart from '../components/Chart.js';
 import SliverAppBar from '../components/SliverAppBar.js';
 import AudioPlayer from '../components/AudioPlayer.js';
 import Camera from '../components/Camera.js';
+import TimePicker from '../components/TimePicker.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -1551,5 +1552,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
