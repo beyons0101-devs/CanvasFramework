@@ -35,19 +35,29 @@ class DatePicker extends Component {
     this.onChange = options.onChange;
     this.platform = framework.platform;
     this.label = options.label || 'Sélectionner une date';
-    
-    // Pour iOS: créer un bouton qui ouvre le picker
+  
+    // Options de personnalisation
+    this.headerBgColor = options.headerBgColor || '#6200EE'; // Android dialog header
+    this.inputBgColor = options.inputBgColor || null;
+    this.inputTextColor = options.inputTextColor || null;
+    this.inputBorderColor = options.inputBorderColor || null;
+    this.labelColor = options.labelColor || null;
+    this.inputHeight = options.inputHeight || 50;
+    this.inputRadius = options.inputRadius || (this.platform === 'cupertino' ? 10 : 0);
+    this.fontSize = options.fontSize || null;
+    this.selectedColor = options.selectedColor || '#6200EE'; // Android selected items
+    this.buttonColor = options.buttonColor || '#6200EE'; // Android buttons
+  
+    // Dimensions
     if (this.platform === 'cupertino') {
       this.width = options.width || framework.width - 40;
-      this.height = 50;
       this.pickerModal = null;
-      this.onClick = this.openPicker.bind(this);
     } else {
-      // Pour Android: afficher directement le modal
       this.width = options.width || Math.min(320, framework.width - 40);
-      this.height = 50;
-      this.onClick = this.openPicker.bind(this);
     }
+  
+    this.height = this.inputHeight;
+    this.onClick = this.openPicker.bind(this);
   }
   
   /**
@@ -69,7 +79,6 @@ class DatePicker extends Component {
    
  
   openIOSPicker() {
-    // Créer un modal avec le picker iOS
     const modal = new Modal(this.framework, {
       title: '',
       width: this.framework.width,
@@ -78,8 +87,7 @@ class DatePicker extends Component {
       closeOnOverlayClick: true,
       bgColor: '#F9F9F9'
     });
-    
-    // Créer le picker de date iOS style
+  
     const picker = new IOSDatePickerWheel(this.framework, {
       x: 0,
       y: 20,
@@ -89,22 +97,23 @@ class DatePicker extends Component {
         this.selectedDate = date;
         if (this.onChange) this.onChange(date);
       }
+      // Ajoutez ici d'autres options si IOSDatePickerWheel en supporte
     });
     modal.add(picker);
-    
-    // Bouton Valider
+  
     const btnOK = new Button(this.framework, {
       x: (this.framework.width - 200) / 2,
       y: 230,
       width: 200,
       height: 44,
       text: 'Valider',
-      onClick: () => {
-        modal.hide();
-      }
+      // Personnalisation du bouton si nécessaire
+      bgColor: this.buttonColor,
+      textColor: '#FFFFFF',
+      onClick: () => modal.hide()
     });
     modal.add(btnOK);
-    
+  
     this.framework.add(modal);
     modal.show();
     this.pickerModal = modal;
@@ -115,15 +124,18 @@ class DatePicker extends Component {
    * @private
    */
   openAndroidDialog() {
-    // Créer un dialog Material Design avec calendrier
     const dialog = new AndroidDatePickerDialog(this.framework, {
       selectedDate: this.selectedDate,
       onChange: (date) => {
         this.selectedDate = date;
         if (this.onChange) this.onChange(date);
-      }
+      },
+      // Transmettre toutes les options de couleur
+      headerBgColor: this.headerBgColor,
+      selectedColor: this.selectedColor,
+      buttonColor: this.buttonColor
     });
-    
+  
     this.framework.add(dialog);
     dialog.show();
   }
@@ -134,34 +146,39 @@ class DatePicker extends Component {
    */
   draw(ctx) {
     if (this.platform === 'cupertino') {
-      // Dessiner un bouton iOS
+      // Styles Cupertino
+      const bgColor = this.inputBgColor || '#FFFFFF';
+      const textColor = this.inputTextColor || '#000000';
+      const labelColor = this.labelColor || '#8E8E93';
+      const borderColor = this.inputBorderColor || '#C7C7CC';
+      const fontSize = this.fontSize || 16;
+    
       ctx.save();
-      
+    
       // Background
-      ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, 10);
+      ctx.fillStyle = bgColor;
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.inputRadius);
       ctx.fill();
-      
-      // Bordure
-      ctx.strokeStyle = '#C7C7CC';
+    
+      // Border
+      ctx.strokeStyle = borderColor;
       ctx.lineWidth = 1;
       ctx.stroke();
-      
+    
       // Label
-      ctx.fillStyle = '#8E8E93';
+      ctx.fillStyle = labelColor;
       ctx.font = '14px -apple-system, sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(this.label, this.x + 15, this.y + this.height / 2 - 10);
-      
-      // Date sélectionnée
-      ctx.fillStyle = '#000000';
-      ctx.font = '16px -apple-system, sans-serif';
+    
+      // Selected date
+      ctx.fillStyle = textColor;
+      ctx.font = `${fontSize}px -apple-system, sans-serif`;
       ctx.fillText(this.formatDate(this.selectedDate), this.x + 15, this.y + this.height / 2 + 10);
-      
+    
       // Chevron
-      ctx.strokeStyle = '#C7C7CC';
+      ctx.strokeStyle = borderColor;
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -169,23 +186,40 @@ class DatePicker extends Component {
       ctx.lineTo(this.x + this.width - 20, this.y + this.height / 2);
       ctx.lineTo(this.x + this.width - 15, this.y + this.height / 2 - 5);
       ctx.stroke();
-      
+    
       ctx.restore();
     } else {
-      // Dessiner un bouton Material
+      // Styles Material
+      const bgColor = this.inputBgColor || (this.pressed ? '#F5F5F5' : '#FFFFFF');
+      const textColor = this.inputTextColor || '#000000';
+      const labelColor = this.labelColor || '#666666';
+      const borderColor = this.inputBorderColor || '#E0E0E0';
+      const fontSize = this.fontSize || 16;
+      const iconColor = labelColor;
+    
       ctx.save();
-      
+    
       // Background
-      ctx.fillStyle = this.pressed ? '#F5F5F5' : '#FFFFFF';
-      ctx.fillRect(this.x, this.y, this.width, this.height);
-      
-      // Bordure
-      ctx.strokeStyle = '#E0E0E0';
+      ctx.fillStyle = bgColor;
+      if (this.inputRadius > 0) {
+        this.roundRect(ctx, this.x, this.y, this.width, this.height, this.inputRadius);
+        ctx.fill();
+      } else {
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+      }
+    
+      // Border
+      ctx.strokeStyle = borderColor;
       ctx.lineWidth = 1;
-      ctx.strokeRect(this.x, this.y, this.width, this.height);
-      
-      // Icône calendrier
-      ctx.strokeStyle = '#666666';
+      if (this.inputRadius > 0) {
+        this.roundRect(ctx, this.x, this.y, this.width, this.height, this.inputRadius);
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(this.x, this.y, this.width, this.height);
+      }
+    
+      // Calendar icon
+      ctx.strokeStyle = iconColor;
       ctx.lineWidth = 2;
       ctx.strokeRect(this.x + 15, this.y + 15, 20, 20);
       ctx.beginPath();
@@ -194,20 +228,20 @@ class DatePicker extends Component {
       ctx.moveTo(this.x + 32, this.y + 12);
       ctx.lineTo(this.x + 32, this.y + 18);
       ctx.stroke();
-      
+    
       // Label
-      ctx.fillStyle = '#666666';
+      ctx.fillStyle = labelColor;
       ctx.font = '12px Roboto, sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
       ctx.fillText(this.label, this.x + 45, this.y + 8);
-      
+    
       // Date
-      ctx.fillStyle = '#000000';
-      ctx.font = '16px Roboto, sans-serif';
+      ctx.fillStyle = textColor;
+      ctx.font = `${fontSize}px Roboto, sans-serif`;
       ctx.textBaseline = 'bottom';
       ctx.fillText(this.formatDate(this.selectedDate), this.x + 45, this.y + this.height - 8);
-      
+    
       ctx.restore();
     }
   }

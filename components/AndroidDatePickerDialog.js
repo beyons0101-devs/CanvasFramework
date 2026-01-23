@@ -31,21 +31,29 @@ class AndroidDatePickerDialog extends Component {
       height: framework.height,
       visible: false
     });
-    
+  
     this.selectedDate = options.selectedDate || new Date();
     this.onChange = options.onChange;
     this.currentMonth = this.selectedDate.getMonth();
     this.currentYear = this.selectedDate.getFullYear();
     this.hoveredDay = null;
-    
+  
+    // Options de personnalisation
+    this.headerBgColor = options.headerBgColor || '#6200EE';
+    this.selectedColor = options.selectedColor || '#6200EE';
+    this.buttonColor = options.buttonColor || '#6200EE';
+    this.todayColor = options.todayColor || '#6200EE';
+    this.textColor = options.textColor || '#000000';
+    this.dayNamesColor = options.dayNamesColor || '#666666';
+  
     this.dialogWidth = Math.min(320, framework.width - 40);
     this.dialogHeight = 420;
     this.headerHeight = 100;
     this.daySize = (this.dialogWidth - 40) / 7;
-    
+  
     this.opacity = 0;
     this.isVisible = false;
-    
+  
     this.onPress = this.handlePress.bind(this);
   }
   
@@ -183,7 +191,7 @@ class AndroidDatePickerDialog extends Component {
     const selectedMonth = monthNames[this.selectedDate.getMonth()];
     const selectedDayNum = this.selectedDate.getDate();
     
-    ctx.fillStyle = '#FFFFFF';
+    ctx.fillStyle = '#000000';
     ctx.font = 'bold 32px Roboto, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${selectedDay}, ${selectedMonth} ${selectedDayNum}`, 
@@ -263,7 +271,7 @@ class AndroidDatePickerDialog extends Component {
           }
           
           // Numéro
-          ctx.fillStyle = isSelected ? '#FFFFFF' : '#000000';
+          ctx.fillStyle = isSelected ? '#FFFFFF' : '#212121';
           ctx.font = '14px Roboto, sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
