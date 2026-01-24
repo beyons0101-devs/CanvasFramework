@@ -27,6 +27,7 @@ class RadioButton extends Component {
     this.group = options.group || 'default';
     this.checked = options.checked || false;
     this.label = options.label || '';
+	this.labelColor = options.labelColor || '#000000'; // Nouvelle propriété
     this.platform = framework.platform;
     this.circleSize = 24; // Taille du cercle
     this.circleRadius = 10; // Rayon du cercle
@@ -123,7 +124,7 @@ class RadioButton extends Component {
     
     // Label
     if (this.label) {
-      ctx.fillStyle = '#000000';
+      ctx.fillStyle = this.labelColor; // Au lieu de '#000000'
       ctx.font = '16px -apple-system, sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
