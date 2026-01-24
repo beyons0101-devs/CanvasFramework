@@ -134,8 +134,8 @@ const FIXED_COMPONENT_TYPES = new Set([
   Modal,
   Tabs,
   FAB,
-  Camera,
   Toast,
+  Camera,
   Banner,
   SliverAppBar,
   BottomSheet,
@@ -180,7 +180,6 @@ class CanvasFramework {
     // Thèmes
     this.lightTheme = lightTheme;
     this.darkTheme = darkTheme;
-    this.theme = lightTheme; // thème par défaut
      // État actuel + préférence
     this.themeMode = options.themeMode || 'system'; // 'light', 'dark', 'system'
     this.userThemeOverride = null; // null = suit system, sinon 'light' ou 'dark'
@@ -196,7 +195,8 @@ class CanvasFramework {
     } 
 
 	this.components = [];
-	this.applyThemeFromSystem();
+	this.theme = lightTheme; // thème par défaut
+	//this.applyThemeFromSystem();
     this.state = {};
     // NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
     this.useWebGL = options.useWebGL !== false; // true par défaut
@@ -286,17 +286,23 @@ class CanvasFramework {
    * Détecte le thème système et applique si mode = 'system'
    */
   applyThemeFromSystem() {
-    if (this.themeMode === 'system') {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const newTheme = prefersDark ? this.darkTheme : this.lightTheme;
-      this.setTheme(newTheme);
-    } else {
-      // Mode forcé
-      this.setTheme(
-        this.themeMode === 'dark' ? this.darkTheme : this.lightTheme
-      );
-    }
-  }
+	  // ✅ Vérifier que tout est initialisé
+	  if (!this.lightTheme || !this.darkTheme) {
+		console.warn('Thèmes non initialisés');
+		return;
+	  }
+
+	  if (this.themeMode === 'system') {
+		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+		const newTheme = prefersDark ? this.darkTheme : this.lightTheme;
+		this.setTheme(newTheme);
+	  } else {
+		// Mode forcé
+		this.setTheme(
+		  this.themeMode === 'dark' ? this.darkTheme : this.lightTheme
+		);
+	  }
+	}
 
   /**
    * Écoute les changements système (ex: utilisateur bascule dark mode)
@@ -431,7 +437,7 @@ class CanvasFramework {
       set: (value) => {
         // Si value est blanc/noir ou une couleur “neutre”, tu remplaces par theme
         if (value === '#FFFFFF' || value === '#000000') {
-          originalFillStyle.set.call(ctx, theme.text); 
+          originalFillStyle.set.call(ctx, value); 
         } else {
           originalFillStyle.set.call(ctx, value);
         }
