@@ -170,7 +170,7 @@ class AndroidDatePickerDialog extends Component {
     ctx.shadowColor = 'transparent';
     
     // Header coloré
-    ctx.fillStyle = '#6200EE';
+    ctx.fillStyle = this.headerBgColor;
     ctx.beginPath();
     this.roundRect(ctx, dialogX, dialogY, this.dialogWidth, this.headerHeight, 4);
     ctx.rect(dialogX, dialogY + this.headerHeight - 4, this.dialogWidth, 4);
@@ -191,7 +191,7 @@ class AndroidDatePickerDialog extends Component {
     const selectedMonth = monthNames[this.selectedDate.getMonth()];
     const selectedDayNum = this.selectedDate.getDate();
     
-    ctx.fillStyle = '#000000';
+    ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 32px Roboto, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillText(`${selectedDay}, ${selectedMonth} ${selectedDayNum}`, 
