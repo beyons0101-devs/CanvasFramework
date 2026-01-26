@@ -83,6 +83,12 @@ class WebGLCanvasAdapter {
     
     // Mode batch (true par défaut pour performance)
     this.batchEnabled = true;
+	
+	// ✅ AJOUTER CES LIGNES
+	this.colorCache = new Map();
+	this.colorCacheMaxSize = 100;
+	this.measureTextCache = new Map();
+	this.uniformLocations = null; // Sera initialisé dans initWebGL
     
     this.initWebGL();
   }
@@ -302,12 +308,19 @@ class WebGLCanvasAdapter {
   }
 
   measureText(text) {
+    const cacheKey = `${text}_${this.state.font}`;
+  
+    // ✅ Cache lookup
+    if (this.measureTextCache.has(cacheKey)) {
+      return this.measureTextCache.get(cacheKey);
+    }
+  
     this.textCtx.save();
     this.textCtx.font = this.state.font;
     const metrics = this.textCtx.measureText(text);
     this.textCtx.restore();
-    
-    return {
+  
+    const result = {
       width: metrics.width,
       actualBoundingBoxAscent: metrics.actualBoundingBoxAscent || 0,
       actualBoundingBoxDescent: metrics.actualBoundingBoxDescent || 0,
@@ -321,6 +334,15 @@ class WebGLCanvasAdapter {
       hangingBaseline: metrics.hangingBaseline || 0,
       ideographicBaseline: metrics.ideographicBaseline || 0
     };
+  
+    // ✅ Cache avec limite
+    if (this.measureTextCache.size >= 200) {
+      const firstKey = this.measureTextCache.keys().next().value;
+      this.measureTextCache.delete(firstKey);
+    }
+    this.measureTextCache.set(cacheKey, result);
+  
+    return result;
   }
 
   // --- Paths ---
@@ -860,6 +882,21 @@ class WebGLCanvasAdapter {
     this.solidProgram = this.createProgram(vsSolidSource, fsSolidSource);
     this.textureProgram = this.createProgram(vsTextureSource, fsTextureSource);
     
+	// ✅ CACHE DES UNIFORM LOCATIONS
+	this.uniformLocations = {
+	  solid: {
+		projection: this.gl.getUniformLocation(this.solidProgram, 'uProjectionMatrix'),
+		transform: this.gl.getUniformLocation(this.solidProgram, 'uTransformMatrix')
+	  },
+	  texture: {
+		projection: this.gl.getUniformLocation(this.textureProgram, 'uProjectionMatrix'),
+		transform: this.gl.getUniformLocation(this.textureProgram, 'uTransformMatrix'),
+		alpha: this.gl.getUniformLocation(this.textureProgram, 'uAlpha'),
+		tintColor: this.gl.getUniformLocation(this.textureProgram, 'uTintColor'),
+		texture: this.gl.getUniformLocation(this.textureProgram, 'uTexture')
+	  }
+	};
+
     // Buffers
     this.positionBuffer = gl.createBuffer();
     this.colorBuffer = gl.createBuffer();
@@ -954,13 +991,13 @@ class WebGLCanvasAdapter {
       gl.bindVertexArray(this.solidVAO);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.vertices), gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.vertices), gl.DYNAMIC_DRAW);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.colors), gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.colors), gl.DYNAMIC_DRAW);
       
-      const projLoc = gl.getUniformLocation(this.solidProgram, 'uProjectionMatrix');
-      gl.uniformMatrix3fv(projLoc, false, this.projectionMatrix);
+      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
+	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
       
       const transformLoc = gl.getUniformLocation(this.solidProgram, 'uTransformMatrix');
       gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
@@ -976,13 +1013,13 @@ class WebGLCanvasAdapter {
       gl.bindVertexArray(this.textureVAO);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.textureVertices), gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.textureVertices), gl.DYNAMIC_DRAW);
       
       gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.textureTexCoords), gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.textureTexCoords), gl.DYNAMIC_DRAW);
       
-      const projLoc = gl.getUniformLocation(this.textureProgram, 'uProjectionMatrix');
-      gl.uniformMatrix3fv(projLoc, false, this.projectionMatrix);
+      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
+	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
       
       const transformLoc = gl.getUniformLocation(this.textureProgram, 'uTransformMatrix');
       gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
@@ -1033,8 +1070,8 @@ class WebGLCanvasAdapter {
       gl.enableVertexAttribArray(colorLoc);
       gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
       
-      const projLoc = gl.getUniformLocation(this.solidProgram, 'uProjectionMatrix');
-      gl.uniformMatrix3fv(projLoc, false, this.projectionMatrix);
+      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
+	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
       
       const transformLoc = gl.getUniformLocation(this.solidProgram, 'uTransformMatrix');
       gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
@@ -1099,8 +1136,8 @@ class WebGLCanvasAdapter {
       gl.enableVertexAttribArray(texLoc);
       gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
       
-      const projLoc = gl.getUniformLocation(this.textureProgram, 'uProjectionMatrix');
-      gl.uniformMatrix3fv(projLoc, false, this.projectionMatrix);
+      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
+	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
       
       const transformLoc = gl.getUniformLocation(this.textureProgram, 'uTransformMatrix');
       gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
@@ -1194,7 +1231,12 @@ class WebGLCanvasAdapter {
       return [0, 0, 0, 1];
     }
     
-    if (color._id && this.gradients.has(color._id)) {
+	// ✅ AJOUTER CACHE LOOKUP
+    if (this.colorCache.has(color)) {
+      return this.colorCache.get(color);
+    }
+    
+	if (color._id && this.gradients.has(color._id)) {
       return [0, 0, 0, 1];
     }
     
@@ -1243,6 +1285,13 @@ class WebGLCanvasAdapter {
       'cyan': [0, 1, 1, 1], 'magenta': [1, 0, 1, 1], 'gray': [0.5, 0.5, 0.5, 1],
       'grey': [0.5, 0.5, 0.5, 1], 'transparent': [0, 0, 0, 0]
     };
+	
+	// ✅ AVANT LE RETURN FINAL, AJOUTER :
+    if (this.colorCache.size >= this.colorCacheMaxSize) {
+      const firstKey = this.colorCache.keys().next().value;
+      this.colorCache.delete(firstKey);
+    }
+    this.colorCache.set(color, result); // result = le tableau [r,g,b,a]
     
     return namedColors[color.toLowerCase()] || [0, 0, 0, 1];
   }
