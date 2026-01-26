@@ -64,6 +64,7 @@ export { default as SliverAppBar } from './components/SliverAppBar.js';
 export { default as AudioPlayer } from './components/AudioPlayer.js';
 export { default as Camera } from './components/Camera.js';
 export { default as TimePicker } from './components/TimePicker.js';
+export { default as QRCodeReader } from './components/QRCodeReader.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -106,8 +107,4 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
 
-export const VERSION = '0.3.25';
-
-
-
-
+export const VERSION = '0.4.2';
