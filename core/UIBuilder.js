@@ -55,6 +55,8 @@ import Banner from '../components/Banner.js';
 import Chart from '../components/Chart.js';
 import SliverAppBar from '../components/SliverAppBar.js';
 import Camera from '../components/Camera.js';
+import TimePicker from '../components/TimePicker.js';
+import QRCodeReader from '../components/QRCodeReader.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -108,10 +110,12 @@ const Components = {
   ProgressBar,
   RadioButton,
   Dialog,
+  QRCodeReader,
   ContextMenu,
   Checkbox,
   Toast,
   Camera,
+  TimePicker,
   NumberInput,
   TextField,
   SelectDialog,
@@ -258,3 +262,4 @@ ui.grid = ui.grid || ((props = {}, children = []) =>
 
 
 export default ui;
+
