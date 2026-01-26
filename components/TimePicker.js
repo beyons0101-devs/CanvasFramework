@@ -193,12 +193,12 @@ class TimePicker extends Component {
       ctx.fillStyle = labelColor;
       ctx.font = '14px Roboto, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(this.label, this.x + 56, this.y + 18);
+      ctx.fillText(this.label, this.x + 48, this.y + 18);
 
       // Valeur (heure)
       ctx.fillStyle = textColor;
       ctx.font = `${fontSize}px Roboto, sans-serif`;
-      ctx.fillText(timeStr, this.x + 56, this.y + this.height - 18);
+      ctx.fillText(timeStr, this.x + 48, this.y + this.height - 10);
     }
 
     ctx.restore();
