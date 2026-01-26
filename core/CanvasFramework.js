@@ -56,6 +56,7 @@ import SliverAppBar from '../components/SliverAppBar.js';
 import AudioPlayer from '../components/AudioPlayer.js';
 import Camera from '../components/Camera.js';
 import TimePicker from '../components/TimePicker.js';
+import QRCodeReader from '../components/QRCodeReader.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -136,6 +137,7 @@ const FIXED_COMPONENT_TYPES = new Set([
   FAB,
   Toast,
   Camera,
+  QRCodeReader,
   Banner,
   SliverAppBar,
   BottomSheet,
@@ -1580,3 +1582,4 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
