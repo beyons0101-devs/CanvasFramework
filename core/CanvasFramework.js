@@ -196,6 +196,11 @@ class CanvasFramework {
 
 	this.components = [];
 	this.theme = lightTheme; // thème par défaut
+	// ✅ AJOUTER ICI :
+	this._cachedMaxScroll = 0;
+	this._maxScrollDirty = true;
+	this.resizeTimeout = null;
+	
 	//this.applyThemeFromSystem();
     this.state = {};
     // NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
@@ -1231,13 +1236,18 @@ class CanvasFramework {
   }
   
   getMaxScroll() {
+    if (!this._maxScrollDirty) return this._cachedMaxScroll;
+  
     let maxY = 0;
     for (const comp of this.components) {
       if (this.isFixedComponent(comp) || !comp.visible) continue;
       const bottom = comp.y + comp.height;
       if (bottom > maxY) maxY = bottom;
     }
-    return Math.max(0, maxY - this.height + 50);
+  
+    this._cachedMaxScroll = Math.max(0, maxY - this.height + 50);
+    this._maxScrollDirty = false;
+    return this._cachedMaxScroll;
   }
 	
   /*getMaxScroll() {
@@ -1251,32 +1261,38 @@ class CanvasFramework {
   }*/
 
   handleResize() {
-    // Pour WebGL, NE PAS redimensionner automatiquement
-    if (!this.useWebGL) {
-      this.width = window.innerWidth;
-      this.height = window.innerHeight;
-      this.setupCanvas();
+    if (this.resizeTimeout) clearTimeout(this.resizeTimeout); // ✅ AJOUTER
+  
+    this.resizeTimeout = setTimeout(() => { // ✅ AJOUTER
+      if (!this.useWebGL) {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.setupCanvas();
     
-      for (const comp of this.components) {
-        if (comp._resize) {
-          comp._resize(this.width, this.height);
+        for (const comp of this.components) {
+          if (comp._resize) {
+            comp._resize(this.width, this.height);
+          }
         }
+        this._maxScrollDirty = true; // ✅ AJOUTER
       }
-    } 
+    }, 150); // ✅ AJOUTER (throttle 150ms)
   }
 
   add(component) {
     this.components.push(component);
-	component._mount();
+    component._mount();
+    this._maxScrollDirty = true; // ✅ AJOUTER CETTE LIGNE
     return component;
   }
 
   remove(component) {
     const index = this.components.indexOf(component);
     if (index > -1) {
-		component._unmount();
-		this.components.splice(index, 1);
-	}
+      component._unmount();
+      this.components.splice(index, 1);
+      this._maxScrollDirty = true; // ✅ AJOUTER CETTE LIGNE
+    }
   }
   
   markComponentDirty(component) {
@@ -1497,14 +1513,20 @@ class CanvasFramework {
         }
 
         // Scrollable
-        this.ctx.save();
-        this.ctx.translate(0, this.scrollOffset);
-        for (let comp of scrollableComponents) {
-          if (comp.visible) {
-            comp.draw(this.ctx);
-          }
-        }
-        this.ctx.restore();
+		this.ctx.save();
+		this.ctx.translate(0, this.scrollOffset);
+		for (let comp of scrollableComponents) {
+		  if (comp.visible) {
+			// ✅ Viewport culling : ne dessiner que ce qui est visible
+			const screenY = comp.y + this.scrollOffset;
+			const isInViewport = screenY + comp.height >= -100 && screenY <= this.height + 100;
+			
+			if (isInViewport) {
+			  comp.draw(this.ctx);
+			}
+		  }
+		}
+		this.ctx.restore();
 
         // Fixed
         for (let comp of fixedComponents) {
@@ -1558,6 +1580,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
