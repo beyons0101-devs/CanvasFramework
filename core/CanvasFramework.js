@@ -81,7 +81,6 @@ import DevTools from '../utils/DevTools.js';
 import InspectionOverlay from '../utils/InspectionOverlay.js';
 import DevToolsConsole from '../utils/DevToolsConsole.js';
 
-
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
 import Skeleton from '../features/Skeleton.js';
@@ -105,27 +104,8 @@ import FeatureFlags from '../manager/FeatureFlags.js';
 // WebGL Adapter
 import WebGLCanvasAdapter from './WebGLCanvasAdapter.js';
 import ui, { createRef } from './UIBuilder.js';
+import ThemeManager from './ThemeManager.js';
 
-// theme
-export const lightTheme = {
-  background: '#FFFFFF',
-  text: '#000000',
-  primary: '#6200EE',
-  secondary: '#03DAC6',
-  buttonText: '#FFFFFF',
-  buttonBackground: '#6200EE',
-  border: '#E0E0E0'
-};
-
-export const darkTheme = {
-  background: '#121212',
-  text: '#FFFFFF',
-  primary: '#BB86FC',
-  secondary: '#03DAC6',
-  buttonText: '#000000',
-  buttonBackground: '#BB86FC',
-  border: '#333333'
-};
 
 const FIXED_COMPONENT_TYPES = new Set([
   AppBar,
@@ -179,9 +159,7 @@ class CanvasFramework {
     
     this.platform = this.detectPlatform();
     
-    // Thèmes
-    this.lightTheme = lightTheme;
-    this.darkTheme = darkTheme;
+    
      // État actuel + préférence
     this.themeMode = options.themeMode || 'system'; // 'light', 'dark', 'system'
     this.userThemeOverride = null; // null = suit system, sinon 'light' ou 'dark'
@@ -197,7 +175,6 @@ class CanvasFramework {
     } 
 
 	this.components = [];
-	this.theme = lightTheme; // thème par défaut
 	// ✅ AJOUTER ICI :
 	this._cachedMaxScroll = 0;
 	this._maxScrollDirty = true;
@@ -287,30 +264,18 @@ class CanvasFramework {
         this.enableDevTools();
         console.log('DevTools enabled. Press Ctrl+Shift+D to toggle.');
     }
+	
+	// Initialiser le ThemeManager
+    this.themeManager = new ThemeManager(this, {
+      lightTheme: options.lightTheme,
+      darkTheme: options.darkTheme,
+      storageKey: options.themeStorageKey || 'app-theme-mode'
+    });
+    
+    // Raccourci pour accéder au thème actuel
+    this.theme = this.themeManager.getTheme();
   }
   
-  /**
-   * Détecte le thème système et applique si mode = 'system'
-   */
-  applyThemeFromSystem() {
-	  // ✅ Vérifier que tout est initialisé
-	  if (!this.lightTheme || !this.darkTheme) {
-		console.warn('Thèmes non initialisés');
-		return;
-	  }
-
-	  if (this.themeMode === 'system') {
-		const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-		const newTheme = prefersDark ? this.darkTheme : this.lightTheme;
-		this.setTheme(newTheme);
-	  } else {
-		// Mode forcé
-		this.setTheme(
-		  this.themeMode === 'dark' ? this.darkTheme : this.lightTheme
-		);
-	  }
-	}
-
   /**
    * Écoute les changements système (ex: utilisateur bascule dark mode)
    */
@@ -339,24 +304,34 @@ class CanvasFramework {
    * @param {'light'|'dark'|'system'} mode - Mode à appliquer
    * @param {boolean} [save=true] - Sauvegarder le choix utilisateur ?
    */
-  setThemeMode(mode, save = true) {
-    if (!['light', 'dark', 'system'].includes(mode)) {
-      console.warn('Mode invalide, valeurs acceptées: light, dark, system');
-      return;
-    }
-
-    this.themeMode = mode;
-
-    if (save && mode !== 'system') {
-      this.userThemeOverride = mode;
-      // Sauvegarde (ex: localStorage ou ton SecureStorage)
-      localStorage.setItem('themeOverride', mode);
-    } else if (mode === 'system') {
-      this.userThemeOverride = null;
-      localStorage.removeItem('themeOverride');
-    }
-
-    this.applyThemeFromSystem();
+  setThemeMode(mode) {
+    this.themeManager.setMode(mode);
+    this.theme = this.themeManager.getTheme();
+  }
+  
+   /**
+   * Obtient une couleur du thème
+   */
+  getColor(colorName) {
+    return this.themeManager.getColor(colorName);
+  }
+  
+  /**
+   * Ajoute un listener de changement de thème
+   */
+  onThemeChange(callback) {
+    this.themeManager.addListener((theme) => {
+      this.theme = theme;
+      callback(theme);
+    });
+  }
+  
+  /**
+   * Bascule entre light et dark
+   */
+  toggleTheme() {
+    this.themeManager.toggle();
+    this.theme = this.themeManager.getTheme();
   }
   
   /**
@@ -1632,3 +1607,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
+
+
