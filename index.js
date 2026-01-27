@@ -84,6 +84,14 @@ export { default as AnimationEngine } from './utils/AnimationEngine.js';
 export { default as CryptoManager } from './utils/CryptoManager.js';
 export { default as NotificationManager } from './utils/NotificationManager.js';
 export { default as DevTools } from './utils/DevTools.js';
+export { default as FirebaseStorage } from './utils/FirebaseStorage.js';
+export { default as FirebaseAuth } from './utils/FirebaseAuth.js';
+export { default as FirebaseCore } from './utils/FirebaseCore.js';
+export { default as FirebaseFirestore } from './utils/FirebaseFirestore.js';
+export { default as FirebaseFunctions } from './utils/FirebaseFunctions.js';
+export { default as FirebaseRealtimeDB } from './utils/FirebaseRealtimeDB.js';
+export { default as PayPalPayment } from './utils/PayPalPayment.js';
+export { default as StripePayment } from './utils/StripePayment.js';
 
 // Features
 export { default as PullToRefresh } from './features/PullToRefresh.js';
@@ -108,3 +116,4 @@ export { default as FeatureFlags } from './manager/FeatureFlags.js';
 // Version du framework
 
 export const VERSION = '0.4.2';
+
