@@ -687,6 +687,9 @@ class CanvasFramework {
       beforeEnter: options.beforeEnter,
       afterEnter: options.afterEnter,
       beforeLeave: options.beforeLeave,
+	  afterLeave: options.afterLeave,        // ✅ NOUVEAU
+      onEnter: options.onEnter,              // ✅ NOUVEAU (alias de afterEnter)
+      onLeave: options.onLeave,              // ✅ NOUVEAU (alias de beforeLeave)
       transition: options.transition || 'slide'
     };
     
@@ -783,28 +786,55 @@ class CanvasFramework {
 
     const { route, params, query, pathname } = match;
 
-    // Hook beforeLeave de la route actuelle
+    // ===== LIFECYCLE: AVANT DE QUITTER L'ANCIENNE ROUTE =====
+  
+    // Hook beforeLeave de la route actuelle (peut bloquer la navigation)
     const currentRouteData = this.routes.get(this.currentRoute);
     if (currentRouteData?.beforeLeave) {
       const canLeave = await currentRouteData.beforeLeave(this.currentParams, this.currentQuery);
-      if (canLeave === false) return;
+      if (canLeave === false) {
+        console.log('Navigation cancelled by beforeLeave hook');
+        return;
+      }
+    }
+  
+    // ✅ NOUVEAU : Hook onLeave (alias plus intuitif de beforeLeave, mais ne bloque pas)
+    if (currentRouteData?.onLeave) {
+      await currentRouteData.onLeave(this.currentParams, this.currentQuery);
     }
 
-    // Hook beforeEnter de la nouvelle route
+    // ===== LIFECYCLE: AVANT D'ENTRER DANS LA NOUVELLE ROUTE =====
+  
+    // Hook beforeEnter de la nouvelle route (peut bloquer la navigation)
     if (route.beforeEnter) {
       const canEnter = await route.beforeEnter(params, query);
-      if (canEnter === false) return;
+      if (canEnter === false) {
+        console.log('Navigation cancelled by beforeEnter hook');
+        return;
+      }
+    }
+  
+    // ✅ NOUVEAU : Hook onEnter (appelé juste avant de créer les composants)
+    if (route.onEnter) {
+      await route.onEnter(params, query);
     }
 
-    // Sauvegarder l'ancienne route pour l'animation
+    // ===== SAUVEGARDER L'ÉTAT ACTUEL =====
+  
+    // Sauvegarder l'ancienne route pour l'animation et les hooks
     const oldComponents = [...this.components];
+    const oldRoute = this.currentRoute;
+    const oldParams = { ...this.currentParams };
+    const oldQuery = { ...this.currentQuery };
 
-    // Mettre à jour l'état
+    // ===== METTRE À JOUR L'ÉTAT =====
+  
     this.currentRoute = pathname;
     this.currentParams = params;
     this.currentQuery = query;
 
-    // Gérer l'historique
+    // ===== GÉRER L'HISTORIQUE =====
+    
     if (!replace) {
       this.historyIndex++;
       this.history = this.history.slice(0, this.historyIndex);
@@ -819,28 +849,48 @@ class CanvasFramework {
     } else {
       this.history[this.historyIndex] = { path, params, query, state };
       window.history.replaceState(
-        { route: path, params, query, state },
+      { route: path, params, query, state },
         '',
         path
       );
     }
 
-    // Créer les nouveaux composants
+    // ===== CRÉER LES NOUVEAUX COMPOSANTS =====
+  
     this.components = [];
     if (typeof route.component === 'function') {
       route.component(this, params, query);
     }
 
-    // Lancer l'animation de transition
+    // ===== LANCER L'ANIMATION DE TRANSITION =====
+  
     if (animate && !this.transitionState.isTransitioning) {
       const transitionType = transition || route.transition || 'slide';
       this.startTransition(oldComponents, this.components, transitionType, direction);
     }
 
-    // Hook afterEnter
+    // ===== LIFECYCLE: APRÈS ÊTRE ENTRÉ DANS LA NOUVELLE ROUTE =====
+  
+    // Hook afterEnter (appelé immédiatement après la création des composants)
     if (route.afterEnter) {
       route.afterEnter(params, query);
     }
+  
+    // ✅ NOUVEAU : Hook afterLeave de l'ancienne route (après transition complète)
+    if (currentRouteData?.afterLeave) {
+      // Si animation, attendre la fin de la transition
+      if (animate && this.transitionState.isTransitioning) {
+        setTimeout(() => {
+          currentRouteData.afterLeave(oldParams, oldQuery);
+        }, this.transitionState.duration || 300);
+      } else {
+        // Pas d'animation, appeler immédiatement
+        currentRouteData.afterLeave(oldParams, oldQuery);
+      }
+    }
+  
+    // ✅ OPTIONNEL : Marquer les composants comme "dirty" pour forcer le rendu
+    this._maxScrollDirty = true;
   }
 
   /**
@@ -1582,4 +1632,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
