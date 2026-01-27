@@ -19,6 +19,16 @@ class DevTools {
       memory: [],
       drawCalls: []
     };
+	// Dans le constructeur, ajoutez :
+	this.consoleLogs = [];
+	this.maxConsoleLogs = 100;
+	this.consoleFilters = {
+	  log: true,
+	  warn: true,
+	  error: true,
+	  debug: true,
+	  info: true
+	};
     this.setupUI();
   }
 
@@ -79,20 +89,50 @@ class DevTools {
 
     // Tabs
     this.tabs = document.createElement('div');
-    this.tabs.style.cssText = `
-      display: flex;
-      background: #2d2d2d;
-      border-bottom: 1px solid #333;
-    `;
+	this.tabs.style.cssText = `
+	  display: flex;
+	  background: #2d2d2d;
+	  border-bottom: 1px solid #333;
+	  overflow-x: auto;
+	  overflow-y: hidden;
+	  scrollbar-width: thin;
+	  scrollbar-color: #555 #2d2d2d;
+	`;
 
-    const tabConfigs = [
-      { id: 'components', label: 'Composants' },
-      { id: 'performance', label: 'Performance' },
-      { id: 'hierarchy', label: 'Hiérarchie' },
-      { id: 'properties', label: 'Propriétés' },
-      { id: 'events', label: 'Événements' },
-      { id: 'routing', label: 'Routing' }
-    ];
+	// Ajouter un style pour la scrollbar webkit (Chrome, Safari, Edge)
+	const style = document.createElement('style');
+	style.textContent = `
+	  #devtools-tabs::-webkit-scrollbar {
+		height: 6px;
+	  }
+	  
+	  #devtools-tabs::-webkit-scrollbar-track {
+		background: #2d2d2d;
+	  }
+	  
+	  #devtools-tabs::-webkit-scrollbar-thumb {
+		background: #555;
+		border-radius: 3px;
+	  }
+	  
+	  #devtools-tabs::-webkit-scrollbar-thumb:hover {
+		background: #666;
+	  }
+	`;
+	document.head.appendChild(style);
+
+	// Ajouter un ID pour cibler avec le CSS
+	this.tabs.id = 'devtools-tabs';
+
+	const tabConfigs = [
+	  { id: 'components', label: 'Composants' },
+	  { id: 'performance', label: 'Performance' },
+	  { id: 'hierarchy', label: 'Hiérarchie' },
+	  { id: 'properties', label: 'Propriétés' },
+	  { id: 'events', label: 'Événements' },
+	  { id: 'routing', label: 'Routing' },
+	  { id: 'console', label: 'Console' }  // <-- NOUVEAU
+	];
 
     tabConfigs.forEach(config => {
       const tab = document.createElement('button');
@@ -126,6 +166,8 @@ class DevTools {
     this.createPropertiesPanel();
     this.createEventsPanel();
     this.createRoutingPanel();
+	// Ajoutez après createRoutingPanel() :
+	this.createConsolePanel();
 
     // Assembler le conteneur
     this.container.appendChild(this.header);
@@ -447,7 +489,330 @@ class DevTools {
     this.content.appendChild(panel);
     this.panels.routing = panel;
   }
+  
+  /**
+	 * Crée le panneau de console
+	 */
+	createConsolePanel() {
+	  const panel = document.createElement('div');
+	  panel.id = 'console-panel';
+	  panel.style.display = 'none';
 
+	  // Filtres
+	  const filters = document.createElement('div');
+	  filters.style.cssText = `
+		display: flex;
+		gap: 10px;
+		padding: 8px;
+		background: #252526;
+		border-radius: 4px;
+		margin-bottom: 10px;
+		flex-wrap: wrap;
+	  `;
+
+	  const filterTypes = [
+		{ type: 'log', label: 'Log', color: '#d4d4d4' },
+		{ type: 'info', label: 'Info', color: '#4ec9b0' },
+		{ type: 'warn', label: 'Warn', color: '#dcdcaa' },
+		{ type: 'error', label: 'Error', color: '#f48771' },
+		{ type: 'debug', label: 'Debug', color: '#569cd6' }
+	  ];
+
+	  filterTypes.forEach(({ type, label, color }) => {
+		const filterBtn = document.createElement('button');
+		filterBtn.textContent = label;
+		filterBtn.dataset.type = type;
+		filterBtn.style.cssText = `
+		  padding: 4px 12px;
+		  background: ${this.consoleFilters[type] ? color : '#555'};
+		  color: ${this.consoleFilters[type] ? '#000' : '#aaa'};
+		  border: none;
+		  border-radius: 3px;
+		  cursor: pointer;
+		  font-size: 11px;
+		  font-weight: bold;
+		  transition: all 0.2s;
+		`;
+		
+		filterBtn.onclick = () => {
+		  this.consoleFilters[type] = !this.consoleFilters[type];
+		  filterBtn.style.background = this.consoleFilters[type] ? color : '#555';
+		  filterBtn.style.color = this.consoleFilters[type] ? '#000' : '#aaa';
+		  this.updateConsolePanel();
+		};
+		
+		filters.appendChild(filterBtn);
+	  });
+
+	  // Liste des logs
+	  const consoleList = document.createElement('div');
+	  consoleList.id = 'console-list';
+	  consoleList.style.cssText = `
+		max-height: 400px;
+		overflow-y: auto;
+		border: 1px solid #333;
+		border-radius: 4px;
+		background: #1e1e1e;
+		font-family: 'Consolas', 'Monaco', monospace;
+		font-size: 11px;
+	  `;
+
+	  // Contrôles
+	  const controls = document.createElement('div');
+	  controls.style.cssText = `
+		display: flex;
+		gap: 8px;
+		margin-top: 10px;
+	  `;
+
+	  const clearBtn = document.createElement('button');
+	  clearBtn.textContent = 'Clear Console';
+	  clearBtn.style.cssText = `
+		flex: 1;
+		padding: 6px;
+		background: #555;
+		color: #fff;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+	  `;
+	  clearBtn.onclick = () => this.clearConsole();
+
+	  const preserveLogCheckbox = document.createElement('label');
+	  preserveLogCheckbox.style.cssText = `
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		color: #ccc;
+		cursor: pointer;
+	  `;
+	  preserveLogCheckbox.innerHTML = `
+		<input type="checkbox" id="preserve-log">
+		<span>Preserve log</span>
+	  `;
+
+	  controls.appendChild(clearBtn);
+	  controls.appendChild(preserveLogCheckbox);
+
+	  panel.appendChild(filters);
+	  panel.appendChild(consoleList);
+	  panel.appendChild(controls);
+
+	  this.content.appendChild(panel);
+	  this.panels.console = panel;
+	  this.consoleList = consoleList;
+	}
+
+	/**
+	 * Met à jour le panneau console
+	 */
+	updateConsolePanel() {
+	  if (!this.isOpen || this.currentTab !== 'console') return;
+
+	  this.consoleList.innerHTML = '';
+
+	  this.consoleLogs
+		.filter(log => this.consoleFilters[log.type])
+		.forEach(log => {
+		  const logItem = document.createElement('div');
+		  logItem.style.cssText = `
+			padding: 6px 10px;
+			border-bottom: 1px solid #2d2d2d;
+			display: flex;
+			align-items: flex-start;
+			gap: 8px;
+		  `;
+
+		  const colors = {
+			log: '#d4d4d4',
+			info: '#4ec9b0',
+			warn: '#dcdcaa',
+			error: '#f48771',
+			debug: '#569cd6'
+		  };
+
+		  const icons = {
+			log: '○',
+			info: 'ℹ',
+			warn: '⚠',
+			error: '✖',
+			debug: '⚙'
+		  };
+
+		  const timestamp = document.createElement('span');
+		  timestamp.textContent = log.timestamp;
+		  timestamp.style.cssText = `
+			color: #888;
+			font-size: 10px;
+			min-width: 80px;
+		  `;
+
+		  const icon = document.createElement('span');
+		  icon.textContent = icons[log.type];
+		  icon.style.cssText = `
+			color: ${colors[log.type]};
+			min-width: 20px;
+			font-weight: bold;
+		  `;
+
+		  const message = document.createElement('div');
+		  message.style.cssText = `
+			flex: 1;
+			color: ${colors[log.type]};
+			word-break: break-word;
+		  `;
+
+		  // Formater le message
+		  if (typeof log.args[0] === 'object') {
+			  // Fonction pour gérer les références circulaires
+			  const safeStringify = (obj, indent = 2) => {
+				const seen = new WeakSet();
+				return JSON.stringify(obj, (key, value) => {
+				  // Ignorer les propriétés framework pour éviter les cycles
+				  if (key === 'framework') return '[CanvasFramework]';
+				  
+				  if (typeof value === 'object' && value !== null) {
+					// Détection de cycle
+					if (seen.has(value)) {
+					  return '[Circular]';
+					}
+					seen.add(value);
+					
+					// Limiter la profondeur pour les gros objets
+					if (key === 'components' && Array.isArray(value)) {
+					  return `[Array(${value.length})]`;
+					}
+				  }
+				  return value;
+				}, indent);
+			  };
+			  
+			  try {
+				message.innerHTML = `<pre style="margin: 0;">${safeStringify(log.args[0])}</pre>`;
+			  } catch (e) {
+				message.textContent = '[Objet complexe non affichable]';
+			  }
+			} else {
+			  message.textContent = log.args.map(arg => {
+				if (typeof arg === 'object' && arg !== null) {
+				  // Pour les objets dans les arguments
+				  const seen = new WeakSet();
+				  try {
+					return JSON.stringify(arg, (key, value) => {
+					  if (key === 'framework') return '[Framework]';
+					  if (typeof value === 'object' && value !== null) {
+						if (seen.has(value)) return '[Circular]';
+						seen.add(value);
+					  }
+					  return value;
+					});
+				  } catch (e) {
+					return '[Object]';
+				  }
+				}
+				return String(arg);
+			  }).join(' ');
+			}
+
+		  // Stack trace pour les erreurs
+		  if (log.type === 'error' && log.stack) {
+			const stackTrace = document.createElement('div');
+			stackTrace.style.cssText = `
+			  margin-top: 5px;
+			  padding: 5px;
+			  background: #2d2d2d;
+			  border-radius: 3px;
+			  font-size: 10px;
+			  color: #888;
+			  max-height: 100px;
+			  overflow-y: auto;
+			`;
+			stackTrace.textContent = log.stack;
+			message.appendChild(stackTrace);
+		  }
+
+		  logItem.appendChild(timestamp);
+		  logItem.appendChild(icon);
+		  logItem.appendChild(message);
+
+		  this.consoleList.appendChild(logItem);
+		});
+
+	  // Auto-scroll vers le bas
+	  this.consoleList.scrollTop = this.consoleList.scrollHeight;
+	}
+
+	/**
+	 * Ajoute un log à la console
+	 */
+	addConsoleLog(type, args, stack = null) {
+	  const timestamp = new Date().toLocaleTimeString();
+	  
+	  this.consoleLogs.push({
+		type,
+		args,
+		timestamp,
+		stack
+	  });
+
+	  // Limiter le nombre de logs
+	  if (this.consoleLogs.length > this.maxConsoleLogs) {
+		this.consoleLogs.shift();
+	  }
+
+	  if (this.isOpen && this.currentTab === 'console') {
+		this.updateConsolePanel();
+	  }
+	}
+
+	/**
+	 * Vide la console
+	 */
+	clearConsole() {
+	  const preserveLog = document.getElementById('preserve-log')?.checked;
+	  
+	  if (!preserveLog) {
+		this.consoleLogs = [];
+		this.updateConsolePanel();
+	  }
+	}
+
+	/**
+	 * Intercepte les méthodes console natives
+	 */
+	interceptConsole() {
+	  const originalConsole = {
+		log: console.log,
+		info: console.info,
+		warn: console.warn,
+		error: console.error,
+		debug: console.debug
+	  };
+
+	  ['log', 'info', 'warn', 'error', 'debug'].forEach(method => {
+		console[method] = (...args) => {
+		  // Appeler la méthode originale
+		  originalConsole[method].apply(console, args);
+		  
+		  // Ajouter au DevTools
+		  const stack = method === 'error' ? new Error().stack : null;
+		  this.addConsoleLog(method, args, stack);
+		};
+	  });
+
+	  // Sauvegarder pour restauration
+	  this.originalConsole = originalConsole;
+	}
+
+	/**
+	 * Restaure les méthodes console natives
+	 */
+	restoreConsole() {
+	  if (this.originalConsole) {
+		Object.assign(console, this.originalConsole);
+	  }
+	}
+	
   /**
    * Configure les raccourcis clavier
    */
@@ -504,14 +869,16 @@ class DevTools {
     });
     
     if (tabId === 'performance') {
-      this.updatePerformancePanel();
-    } else if (tabId === 'hierarchy') {
-      this.updateHierarchyPanel();
-    } else if (tabId === 'components') {
-      this.updateComponentsPanel();
-    } else if (tabId === 'routing') {
-      this.updateRoutingPanel();
-    }
+	  this.updatePerformancePanel();
+	} else if (tabId === 'hierarchy') {
+  	  this.updateHierarchyPanel();
+	} else if (tabId === 'components') {
+	  this.updateComponentsPanel();
+	} else if (tabId === 'routing') {
+	  this.updateRoutingPanel();
+	} else if (tabId === 'console') {  // <-- NOUVEAU
+	  this.updateConsolePanel();
+	}
   }
 
   /**
@@ -1143,6 +1510,8 @@ class DevTools {
    * Nettoie les références et restaure le framework
    */
 	cleanup() {
+		this.restoreConsole();
+  
 		// Restaurer les méthodes originales si elles existent
 		if (this.framework) {
 			if (this.originalNavigate) {
@@ -1190,6 +1559,8 @@ class DevTools {
    */
 	attachToFramework() {
 		window.devTools = this;
+		// Intercepter la console
+		this.interceptConsole();
 		
 		// Sauvegarder les références originales
 		this.originalNavigate = this.framework.navigate;
