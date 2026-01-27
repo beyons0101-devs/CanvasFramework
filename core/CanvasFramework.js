@@ -478,7 +478,17 @@ class CanvasFramework {
                 requestAnimationFrame(fade);
             } else {
                 this._splashFinished = true;
-                this.ctx.clearRect(0, 0, this.width, this.height);
+				// ✅ AJOUTER : Réinitialiser complètement le contexte
+			    this.ctx.clearRect(0, 0, this.width, this.height);
+			    this.ctx.globalAlpha = 1;
+			    this.ctx.textAlign = 'start'; // ← IMPORTANT
+			    this.ctx.textBaseline = 'alphabetic'; // ← IMPORTANT
+			    this.ctx.font = '10px sans-serif'; // Valeur par défaut
+			    this.ctx.fillStyle = '#000000';
+			    this.ctx.strokeStyle = '#000000';
+			    this.ctx.lineWidth = 1;
+			    this.ctx.lineCap = 'butt';
+			    this.ctx.lineJoin = 'miter';
             }
         };
 
