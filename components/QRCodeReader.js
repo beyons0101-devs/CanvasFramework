@@ -134,8 +134,8 @@ class QRCodeReader extends Component {
       this.stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: this.facingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 320 },
+          height: { ideal: 240 },
           frameRate: { ideal: 30 }
         }
       });
@@ -532,5 +532,6 @@ class QRCodeReader extends Component {
     ctx.restore();
   }
 }
+
 
 export default QRCodeReader;
