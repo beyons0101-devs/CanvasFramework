@@ -1583,8 +1583,30 @@ class CanvasFramework {
       }
       return Math.max(0, maxY - this.height + 50);
     }*/
-
-    handleResize() {
+	
+	handleResize() {
+    	if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
+    
+    	this.resizeTimeout = setTimeout(() => {
+        	this.width = window.innerWidth;
+        	this.height = window.innerHeight;
+        	this.setupCanvas();
+        
+        	// ✅ Mettre à jour la projection WebGL aussi
+        	if (this.useWebGL && this.ctx.updateProjectionMatrix) {
+            	this.ctx.updateProjectionMatrix();
+        	}
+        
+        	for (const comp of this.components) {
+            	if (comp._resize) {
+                	comp._resize(this.width, this.height);
+            	}
+        	}
+        	this._maxScrollDirty = true;
+    	}, 150);
+	}
+	
+    /*handleResize() {
         if (this.resizeTimeout) clearTimeout(this.resizeTimeout); // ✅ AJOUTER
 
         this.resizeTimeout = setTimeout(() => { // ✅ AJOUTER
@@ -1601,7 +1623,7 @@ class CanvasFramework {
                 this._maxScrollDirty = true; // ✅ AJOUTER
             }
         }, 150); // ✅ AJOUTER (throttle 150ms)
-    }
+    }*/
 
     add(component) {
         this.components.push(component);
@@ -1934,3 +1956,4 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
