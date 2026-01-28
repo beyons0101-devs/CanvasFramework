@@ -213,7 +213,7 @@ class CanvasFramework {
         // NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
         this.useWebGL = options.useWebGL !== false; // true par défaut
         // Initialiser le contexte approprié
-        if (this.useWebGL) {
+        /*if (this.useWebGL) {
             try {
                 this.ctx = new WebGLCanvasAdapter(this.canvas);
             } catch (e) {
@@ -222,7 +222,7 @@ class CanvasFramework {
             }
         } else {
             this.ctx = this.canvas.getContext('2d');
-        }
+        }*/
         // Calcule FPS
         this.fps = 0;
         this._frames = 0;
@@ -866,12 +866,13 @@ class CanvasFramework {
         this.canvas.style.height = this.height + 'px';
 
         // Échelle uniquement pour Canvas 2D
-        if (!this.useWebGL) {
+		this.ctx.scale(this.dpr, this.dpr);
+        /*if (!this.useWebGL) {
             this.ctx.scale(this.dpr, this.dpr);
         } else {
             // WebGL gère le DPR automatiquement via la matrice de projection
             this.ctx.updateProjectionMatrix();
-        }
+        }*/
     }
 
     setupEventListeners() {
@@ -1600,7 +1601,7 @@ class CanvasFramework {
         	this._maxScrollDirty = true;
     	}, 150);
 	}
-	
+
     /*handleResize() {
         if (this.resizeTimeout) clearTimeout(this.resizeTimeout); // ✅ AJOUTER
 
@@ -1951,5 +1952,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
