@@ -1590,12 +1590,7 @@ class CanvasFramework {
     	this.resizeTimeout = setTimeout(() => {
         	this.width = window.innerWidth;
         	this.height = window.innerHeight;
-        	this.setupCanvas();
-        
-        	// ✅ Mettre à jour la projection WebGL aussi
-        	if (this.useWebGL && this.ctx.updateProjectionMatrix) {
-            	this.ctx.updateProjectionMatrix();
-        	}
+        	this.setupCanvas(); // ← Fait déjà tout le boulot
         
         	for (const comp of this.components) {
             	if (comp._resize) {
@@ -1956,4 +1951,5 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
