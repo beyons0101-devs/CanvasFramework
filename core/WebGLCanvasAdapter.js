@@ -1,1418 +1,1435 @@
 /**
- * Adaptateur WebGL amélioré qui émule l'API Canvas 2D
- * Version complète avec toutes les API Canvas 2D
+ * Adaptateur WebGL pour le rendu Canvas 2D-like
+ * @class WebGLCanvasAdapter
  */
 class WebGLCanvasAdapter {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-    
-    if (!this.gl) {
-      throw new Error('WebGL non supporté');
-    }
+    /**
+     * Crée une instance de WebGLCanvasAdapter
+     * @param {HTMLCanvasElement} canvas - Élément canvas HTML
+     * @param {Object} options - Options de configuration WebGL
+     */
+    constructor(canvas, options = {}) {
+        this.canvas = canvas;
+        this.options = {
+            alpha: true,
+            antialias: true,
+            depth: false,
+            stencil: false,
+            powerPreference: 'high-performance',
+            preserveDrawingBuffer: false,
+            ...options
+        };
 
-    // État du contexte (comme Canvas 2D)
-    this.state = {
-      fillStyle: '#000000',
-      strokeStyle: '#000000',
-      lineWidth: 1,
-      font: '10px sans-serif',
-      textAlign: 'start',
-      textBaseline: 'alphabetic',
-      globalAlpha: 1,
-      shadowColor: 'transparent',
-      shadowBlur: 0,
-      shadowOffsetX: 0,
-      shadowOffsetY: 0,
-      transform: [1, 0, 0, 1, 0, 0],
-      clipPath: null,
-      lineCap: 'butt',
-      lineJoin: 'miter',
-      miterLimit: 10,
-      filter: 'none',
-      lineDash: [],
-      lineDashOffset: 0,
-      direction: 'ltr'
-    };
+        // Obtenir le contexte WebGL
+        this.gl = canvas.getContext('webgl2', this.options) || 
+                  canvas.getContext('webgl', this.options) ||
+                  canvas.getContext('experimental-webgl', this.options);
 
-    this.stateStack = [];
-    
-    // Système de batching
-    this.batch = {
-      vertices: [],
-      colors: [],
-      texCoords: [],
-      indices: [],
-      currentTexture: null,
-      textureVertices: [],
-      textureTexCoords: [],
-      textureIndices: [],
-      elementOffset: 0,
-      textureElementOffset: 0
-    };
-    
-    // Canvas offscreen pour le texte et les textures
-    this.textCanvas = document.createElement('canvas');
-    this.textCtx = this.textCanvas.getContext('2d');
-    this.textCanvas.width = 2048;
-    this.textCanvas.height = 2048;
-    this.textAtlas = {
-      canvas: this.textCanvas,
-      ctx: this.textCtx,
-      currentX: 0,
-      currentY: 0,
-      lineHeight: 0,
-      cache: new Map()
-    };
-    
-    // Cache de textures pour le texte (avec LRU)
-    this.textCache = new Map();
-    this.textureLRU = [];
-    this.maxTextureCacheSize = 100;
-    
-    // Cache des gradients
-    this.gradients = new Map();
-    
-    // Buffer pour les images
-    this.imageCache = new Map();
-    
-    // État du path courant
-    this.currentPath = null;
-    this.currentSubpath = [];
-    this.currentPoint = null;
-    
-    // Mode batch (true par défaut pour performance)
-    this.batchEnabled = true;
-	
-	// ✅ AJOUTER CES LIGNES
-	this.colorCache = new Map();
-	this.colorCacheMaxSize = 100;
-	this.measureTextCache = new Map();
-	this.uniformLocations = null; // Sera initialisé dans initWebGL
-    
-    this.initWebGL();
-  }
-
-  // ===== API CANVAS 2D COMPLÈTE =====
-
-  // --- Sauvegarde et restauration d'état ---
-  save() {
-    this.stateStack.push({
-      fillStyle: this.state.fillStyle,
-      strokeStyle: this.state.strokeStyle,
-      lineWidth: this.state.lineWidth,
-      font: this.state.font,
-      textAlign: this.state.textAlign,
-      textBaseline: this.state.textBaseline,
-      globalAlpha: this.state.globalAlpha,
-      shadowColor: this.state.shadowColor,
-      shadowBlur: this.state.shadowBlur,
-      shadowOffsetX: this.state.shadowOffsetX,
-      shadowOffsetY: this.state.shadowOffsetY,
-      transform: [...this.state.transform],
-      clipPath: this.state.clipPath ? [...this.state.clipPath] : null,
-      lineCap: this.state.lineCap,
-      lineJoin: this.state.lineJoin,
-      miterLimit: this.state.miterLimit,
-      filter: this.state.filter,
-      lineDash: [...this.state.lineDash],
-      lineDashOffset: this.state.lineDashOffset,
-      direction: this.state.direction
-    });
-  }
-
-  restore() {
-    if (this.stateStack.length === 0) return;
-    
-    const savedState = this.stateStack.pop();
-    Object.assign(this.state, savedState);
-    
-    if (this.state.clipPath) {
-      this.applyClip();
-    }
-  }
-
-  // --- Transformations ---
-  setTransform(a, b, c, d, e, f) {
-    this.state.transform = [a, b, c, d, e, f];
-  }
-
-  resetTransform() {
-    this.state.transform = [1, 0, 0, 1, 0, 0];
-  }
-
-  transform(a, b, c, d, e, f) {
-    const [a1, b1, c1, d1, e1, f1] = this.state.transform;
-    
-    this.state.transform = [
-      a1 * a + c1 * b,
-      b1 * a + d1 * b,
-      a1 * c + c1 * d,
-      b1 * c + d1 * d,
-      a1 * e + c1 * f + e1,
-      b1 * e + d1 * f + f1
-    ];
-  }
-
-  translate(x, y) {
-    this.transform(1, 0, 0, 1, x, y);
-  }
-
-  rotate(angle) {
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    this.transform(cos, sin, -sin, cos, 0, 0);
-  }
-
-  scale(x, y) {
-    this.transform(x, 0, 0, y, 0, 0);
-  }
-
-  getTransform() {
-    const [a, b, c, d, e, f] = this.state.transform;
-    return new DOMMatrix([a, b, c, d, e, f]);
-  }
-
-  // --- Text ---
-  createTextAtlas() {
-    const gl = this.gl;
-    
-    this.textAtlasTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.textAtlasTexture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.textCanvas.width, this.textCanvas.height, 
-                  0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    
-    this.textCtx.fillStyle = 'rgba(0,0,0,0)';
-    this.textCtx.fillRect(0, 0, this.textCanvas.width, this.textCanvas.height);
-  }
-
-  getTextGlyph(text, font, color = '#000000') {
-    const cacheKey = `${text}_${font}_${color}`;
-    
-    if (this.textAtlas.cache.has(cacheKey)) {
-      return this.textAtlas.cache.get(cacheKey);
-    }
-    
-    this.textCtx.save();
-    this.textCtx.font = font;
-    this.textCtx.fillStyle = color;
-    this.textCtx.textAlign = 'left';
-    this.textCtx.textBaseline = 'alphabetic';
-    
-    const metrics = this.textCtx.measureText(text);
-    const textWidth = Math.ceil(metrics.width);
-    const textHeight = Math.ceil(parseInt(font) || 16);
-    
-    if (this.textAtlas.currentX + textWidth > this.textCanvas.width) {
-      this.textAtlas.currentX = 0;
-      this.textAtlas.currentY += this.textAtlas.lineHeight + 2;
-      this.textAtlas.lineHeight = 0;
-    }
-    
-    if (this.textAtlas.currentY + textHeight > this.textCanvas.height) {
-      this.textAtlas.currentX = 0;
-      this.textAtlas.currentY = 0;
-      this.textAtlas.lineHeight = 0;
-      
-      this.textCtx.fillStyle = 'rgba(0,0,0,0)';
-      this.textCtx.fillRect(0, 0, this.textCanvas.width, this.textCanvas.height);
-      this.textAtlas.cache.clear();
-    }
-    
-    this.textCtx.fillText(text, this.textAtlas.currentX, this.textAtlas.currentY + textHeight);
-    
-    const texX = this.textAtlas.currentX / this.textCanvas.width;
-    const texY = this.textAtlas.currentY / this.textCanvas.height;
-    const texWidth = textWidth / this.textCanvas.width;
-    const texHeight = textHeight / this.textCanvas.height;
-    
-    const glyph = {
-      x: this.textAtlas.currentX,
-      y: this.textAtlas.currentY,
-      width: textWidth,
-      height: textHeight,
-      texX, texY, texWidth, texHeight,
-      bearingY: metrics.actualBoundingBoxAscent || textHeight,
-      metrics: metrics
-    };
-    
-    this.textAtlas.cache.set(cacheKey, glyph);
-    this.textAtlas.currentX += textWidth + 2;
-    this.textAtlas.lineHeight = Math.max(this.textAtlas.lineHeight, textHeight);
-    this.updateTextAtlasTexture();
-    this.textCtx.restore();
-    
-    return glyph;
-  }
-
-  updateTextAtlasTexture() {
-    const gl = this.gl;
-    gl.bindTexture(gl.TEXTURE_2D, this.textAtlasTexture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.textCanvas);
-  }
-
-  fillText(text, x, y, maxWidth) {
-    const glyph = this.getTextGlyph(text, this.state.font, this.state.fillStyle);
-    
-    let drawX = x;
-    if (this.state.textAlign === 'center') {
-      drawX -= glyph.width / 2;
-    } else if (this.state.textAlign === 'right' || this.state.textAlign === 'end') {
-      drawX -= glyph.width;
-    }
-    
-    let drawY = y;
-    if (this.state.textBaseline === 'top') {
-      drawY += glyph.bearingY;
-    } else if (this.state.textBaseline === 'middle') {
-      drawY += glyph.bearingY / 2;
-    } else if (this.state.textBaseline === 'bottom' || this.state.textBaseline === 'ideographic' || this.state.textBaseline === 'hanging') {
-      drawY -= (glyph.height - glyph.bearingY);
-    }
-    
-    let scale = 1;
-    if (maxWidth && maxWidth < glyph.width) {
-      scale = maxWidth / glyph.width;
-    }
-    
-    this.drawTexturedQuad(
-      this.textAtlasTexture,
-      drawX,
-      drawY - glyph.bearingY,
-      glyph.width * scale,
-      glyph.height * scale,
-      [
-        glyph.texX, glyph.texY,
-        glyph.texX + glyph.texWidth, glyph.texY,
-        glyph.texX + glyph.texWidth, glyph.texY + glyph.texHeight,
-        glyph.texX, glyph.texY + glyph.texHeight
-      ]
-    );
-  }
-
-  strokeText(text, x, y, maxWidth) {
-    const lineWidth = this.state.lineWidth;
-    const offsets = [
-      [-lineWidth, -lineWidth], [-lineWidth, 0], [-lineWidth, lineWidth],
-      [0, -lineWidth], [0, lineWidth],
-      [lineWidth, -lineWidth], [lineWidth, 0], [lineWidth, lineWidth]
-    ];
-    
-    for (const [offsetX, offsetY] of offsets) {
-      this.fillText(text, x + offsetX, y + offsetY, maxWidth);
-    }
-  }
-
-  measureText(text) {
-    const cacheKey = `${text}_${this.state.font}`;
-  
-    // ✅ Cache lookup
-    if (this.measureTextCache.has(cacheKey)) {
-      return this.measureTextCache.get(cacheKey);
-    }
-  
-    this.textCtx.save();
-    this.textCtx.font = this.state.font;
-    const metrics = this.textCtx.measureText(text);
-    this.textCtx.restore();
-  
-    const result = {
-      width: metrics.width,
-      actualBoundingBoxAscent: metrics.actualBoundingBoxAscent || 0,
-      actualBoundingBoxDescent: metrics.actualBoundingBoxDescent || 0,
-      actualBoundingBoxLeft: metrics.actualBoundingBoxLeft || 0,
-      actualBoundingBoxRight: metrics.actualBoundingBoxRight || 0,
-      fontBoundingBoxAscent: metrics.fontBoundingBoxAscent || 0,
-      fontBoundingBoxDescent: metrics.fontBoundingBoxDescent || 0,
-      emHeightAscent: metrics.emHeightAscent || 0,
-      emHeightDescent: metrics.emHeightDescent || 0,
-      alphabeticBaseline: metrics.alphabeticBaseline || 0,
-      hangingBaseline: metrics.hangingBaseline || 0,
-      ideographicBaseline: metrics.ideographicBaseline || 0
-    };
-  
-    // ✅ Cache avec limite
-    if (this.measureTextCache.size >= 200) {
-      const firstKey = this.measureTextCache.keys().next().value;
-      this.measureTextCache.delete(firstKey);
-    }
-    this.measureTextCache.set(cacheKey, result);
-  
-    return result;
-  }
-
-  // --- Paths ---
-  beginPath() {
-    this.currentPath = [];
-    this.currentSubpath = [];
-    this.currentPoint = null;
-  }
-
-  moveTo(x, y) {
-    if (!this.currentPath) this.beginPath();
-    this.currentSubpath = [[x, y]];
-    this.currentPath.push([x, y]);
-    this.currentPoint = [x, y];
-  }
-
-  lineTo(x, y) {
-    if (!this.currentPoint) {
-      this.moveTo(x, y);
-      return;
-    }
-    this.currentSubpath.push([x, y]);
-    this.currentPath.push([x, y]);
-    this.currentPoint = [x, y];
-  }
-
-  closePath() {
-    if (this.currentSubpath.length > 0) {
-      const firstPoint = this.currentSubpath[0];
-      this.lineTo(firstPoint[0], firstPoint[1]);
-    }
-    this.currentSubpath = [];
-  }
-
-  arc(x, y, radius, startAngle, endAngle, anticlockwise = false) {
-    if (!this.currentPoint) {
-      this.moveTo(x + Math.cos(startAngle) * radius, y + Math.sin(startAngle) * radius);
-    }
-    
-    const angleStep = (endAngle - startAngle) / 32;
-    const direction = anticlockwise ? -1 : 1;
-    
-    for (let i = 1; i <= 32; i++) {
-      const angle = startAngle + direction * i * angleStep;
-      const px = x + Math.cos(angle) * radius;
-      const py = y + Math.sin(angle) * radius;
-      this.lineTo(px, py);
-    }
-  }
-
-  arcTo(x1, y1, x2, y2, radius) {
-    if (!this.currentPoint) return;
-    
-    const [x0, y0] = this.currentPoint;
-    const v01 = { x: x1 - x0, y: y1 - y0 };
-    const v12 = { x: x2 - x1, y: y2 - y1 };
-    
-    const len01 = Math.sqrt(v01.x * v01.x + v01.y * v01.y);
-    const len12 = Math.sqrt(v12.x * v12.x + v12.y * v12.y);
-    
-    const norm01 = { x: v01.x / len01, y: v01.y / len01 };
-    const norm12 = { x: v12.x / len12, y: v12.y / len12 };
-    
-    const angle = Math.acos(norm01.x * norm12.x + norm01.y * norm12.y);
-    const distance = radius / Math.tan(angle / 2);
-    
-    const p1 = { x: x1 - norm01.x * distance, y: y1 - norm01.y * distance };
-    const p2 = { x: x1 + norm12.x * distance, y: y1 + norm12.y * distance };
-    
-    const centerX = p1.x + norm01.y * radius * (norm01.x * norm12.y - norm01.y * norm12.x > 0 ? 1 : -1);
-    const centerY = p1.y - norm01.x * radius * (norm01.x * norm12.y - norm01.y * norm12.x > 0 ? 1 : -1);
-    
-    const startAngle = Math.atan2(p1.y - centerY, p1.x - centerX);
-    const endAngle = Math.atan2(p2.y - centerY, p2.x - centerX);
-    
-    this.lineTo(p1.x, p1.y);
-    this.arc(centerX, centerY, radius, startAngle, endAngle, norm01.x * norm12.y - norm01.y * norm12.x < 0);
-  }
-
-  ellipse(x, y, radiusX, radiusY, rotation, startAngle, endAngle, anticlockwise = false) {
-    if (!this.currentPoint) {
-      const px = x + Math.cos(startAngle) * Math.cos(rotation) * radiusX - Math.sin(startAngle) * Math.sin(rotation) * radiusY;
-      const py = y + Math.cos(startAngle) * Math.sin(rotation) * radiusX + Math.sin(startAngle) * Math.cos(rotation) * radiusY;
-      this.moveTo(px, py);
-    }
-    
-    const segments = Math.ceil(32 * Math.max(radiusX, radiusY) / 10);
-    const angleStep = (endAngle - startAngle) / segments;
-    const direction = anticlockwise ? -1 : 1;
-    
-    for (let i = 1; i <= segments; i++) {
-      const angle = startAngle + direction * i * angleStep;
-      const px = x + Math.cos(angle) * Math.cos(rotation) * radiusX - Math.sin(angle) * Math.sin(rotation) * radiusY;
-      const py = y + Math.cos(angle) * Math.sin(rotation) * radiusX + Math.sin(angle) * Math.cos(rotation) * radiusY;
-      this.lineTo(px, py);
-    }
-  }
-
-  rect(x, y, width, height) {
-    this.moveTo(x, y);
-    this.lineTo(x + width, y);
-    this.lineTo(x + width, y + height);
-    this.lineTo(x, y + height);
-    this.closePath();
-  }
-
-  bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y) {
-    if (!this.currentPoint) {
-      this.currentPoint = [x, y];
-      return;
-    }
-    
-    const [x0, y0] = this.currentPoint;
-    const segments = 20;
-    
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const t1 = 1 - t;
-      
-      const bx = t1 * t1 * t1 * x0 + 
-                 3 * t1 * t1 * t * cp1x + 
-                 3 * t1 * t * t * cp2x + 
-                 t * t * t * x;
-      
-      const by = t1 * t1 * t1 * y0 + 
-                 3 * t1 * t1 * t * cp1y + 
-                 3 * t1 * t * t * cp2y + 
-                 t * t * t * y;
-      
-      this.lineTo(bx, by);
-    }
-  }
-
-  quadraticCurveTo(cpx, cpy, x, y) {
-    if (!this.currentPoint) {
-      this.currentPoint = [x, y];
-      return;
-    }
-    
-    const [x0, y0] = this.currentPoint;
-    const segments = 20;
-    
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const t1 = 1 - t;
-      
-      const qx = t1 * t1 * x0 + 2 * t1 * t * cpx + t * t * x;
-      const qy = t1 * t1 * y0 + 2 * t1 * t * cpy + t * t * y;
-      
-      this.lineTo(qx, qy);
-    }
-  }
-
-  // --- Drawing ---
-  fill(fillRule = 'nonzero') {
-    if (!this.currentPath || this.currentPath.length < 3) return;
-    
-    const triangles = this.triangulatePolygon(this.currentPath, fillRule);
-    const color = this.parseColor(this.state.fillStyle);
-    const alpha = color[3] * this.state.globalAlpha;
-    
-    const vertices = [];
-    const colors = [];
-    
-    for (const triangle of triangles) {
-      for (const point of triangle) {
-        const [px, py] = this.transformPoint(point[0], point[1]);
-        vertices.push(px, py);
-        colors.push(color[0], color[1], color[2], alpha);
-      }
-    }
-    
-    this.drawTriangles(vertices, colors);
-  }
-
-  stroke() {
-    if (!this.currentPath || this.currentPath.length < 2) return;
-    
-    const color = this.parseColor(this.state.strokeStyle);
-    const alpha = color[3] * this.state.globalAlpha;
-    const lineWidth = this.state.lineWidth;
-    
-    for (let i = 0; i < this.currentPath.length - 1; i++) {
-      const p1 = this.currentPath[i];
-      const p2 = this.currentPath[i + 1];
-      
-      this.drawLine(p1[0], p1[1], p2[0], p2[1], lineWidth, color, alpha);
-    }
-  }
-
-  clip(fillRule = 'nonzero') {
-    if (!this.currentPath) return;
-    
-    this.state.clipPath = [...this.currentPath];
-    this.applyClip();
-  }
-
-  isPointInPath(x, y, fillRule = 'nonzero') {
-    if (!this.currentPath || this.currentPath.length < 3) return false;
-    
-    let wn = 0;
-    const points = this.currentPath;
-    
-    for (let i = 0; i < points.length; i++) {
-      const p1 = points[i];
-      const p2 = points[(i + 1) % points.length];
-      
-      if (p1[1] <= y) {
-        if (p2[1] > y && this.isLeft(p1, p2, [x, y]) > 0) {
-          wn++;
+        if (!this.gl) {
+            throw new Error('WebGL not supported');
         }
-      } else {
-        if (p2[1] <= y && this.isLeft(p1, p2, [x, y]) < 0) {
-          wn--;
-        }
-      }
-    }
-    
-    if (fillRule === 'nonzero') {
-      return wn !== 0;
-    } else {
-      return Math.abs(wn % 2) === 1;
-    }
-  }
 
-  isPointInStroke(x, y) {
-    if (!this.currentPath || this.currentPath.length < 2) return false;
-    
-    const lineWidth = this.state.lineWidth;
-    
-    for (let i = 0; i < this.currentPath.length - 1; i++) {
-      const p1 = this.currentPath[i];
-      const p2 = this.currentPath[i + 1];
-      
-      if (this.isPointNearLine(x, y, p1[0], p1[1], p2[0], p2[1], lineWidth)) {
+        // Dimensions
+        this.width = canvas.width;
+        this.height = canvas.height;
+        this.dpr = window.devicePixelRatio || 1;
+
+        // État du contexte (compatibilité Canvas 2D)
+        this._state = {
+            fillStyle: '#000000',
+            strokeStyle: '#000000',
+            lineWidth: 1,
+            lineCap: 'butt',
+            lineJoin: 'miter',
+            miterLimit: 10,
+            globalAlpha: 1,
+            textAlign: 'start',
+            textBaseline: 'alphabetic',
+            font: '10px sans-serif',
+            shadowColor: 'rgba(0, 0, 0, 0)',
+            shadowBlur: 0,
+            shadowOffsetX: 0,
+            shadowOffsetY: 0,
+            filter: 'none'
+        };
+
+        // Pile d'états (pour save/restore)
+        this._stateStack = [];
+
+        // Transformations
+        this._transform = {
+            matrix: [1, 0, 0, 1, 0, 0], // [a, b, c, d, e, f]
+            stack: []
+        };
+
+        // Chemins (path)
+        this._path = {
+            points: [],
+            subpaths: [],
+            currentSubpath: []
+        };
+
+        // Textures et ressources
+        this._textures = new Map();
+        this._shaders = new Map();
+        this._buffers = new Map();
+
+        // Programmes de shader
+        this._programs = {
+            basic: null,
+            text: null,
+            gradient: null,
+            image: null
+        };
+
+        // Gestionnaire de dégradés
+        this._gradients = new Map();
+
+        // Couleurs courantes
+        this._currentFillColor = this._parseColor(this._state.fillStyle);
+        this._currentStrokeColor = this._parseColor(this._state.strokeStyle);
+
+        // Configuration initiale
+        this._setupWebGL();
+        this._compileShaders();
+        this._createBuffers();
+
+        // Interface CanvasRenderingContext2D-like
+        this._setupInterface();
+
+        // Test immédiat pour vérifier le rendu
+        setTimeout(() => {
+            console.log('Testing WebGL rendering...');
+            this.fillStyle = 'red';
+            this.fillRect(10, 10, 100, 100);
+            this.fillStyle = 'blue';
+            this.fillRect(150, 10, 100, 100);
+            
+            // Vérifier l'état WebGL
+            const glError = this.gl.getError();
+            if (glError !== this.gl.NO_ERROR) {
+                console.error('WebGL error:', glError);
+            } else {
+                console.log('WebGL rendering test passed');
+            }
+        }, 100);
+    }
+
+    /**
+     * Configure l'environnement WebGL de base
+     * @private
+     */
+    _setupWebGL() {
+        const gl = this.gl;
+
+        // Configuration du viewport
+        gl.viewport(0, 0, this.width, this.height);
+
+        // Activer le blending pour la transparence
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+        // Désactiver le test de profondeur (2D)
+        gl.disable(gl.DEPTH_TEST);
+
+        // Clear color
+        gl.clearColor(0, 0, 0, 0);
+    }
+
+    /**
+     * Compile les shaders nécessaires
+     * @private
+     */
+    _compileShaders() {
+		console.log('=== COMPILING SIMPLE SHADER ===');
+		
+		// SHADER ULTRA SIMPLE qui compile à coup sûr
+		const basicVS = `#version 300 es
+			precision highp float;
+			
+			in vec2 a_position;
+			in vec4 a_color;
+			
+			out vec4 v_color;
+			
+			void main() {
+				// DIRECT NDC: a_position contient déjà des coordonnées NDC (-1 à 1)
+				gl_Position = vec4(a_position, 0.0, 1.0);
+				v_color = a_color;
+			}
+		`;
+
+		const basicFS = `#version 300 es
+			precision highp float;
+			
+			in vec4 v_color;
+			out vec4 outColor;
+			
+			void main() {
+				outColor = v_color;
+			}
+		`;
+
+		this._programs.basic = this._createProgram(basicVS, basicFS);
+		
+		// Shaders pour texte et images (simplifiés aussi)
+		const textVS = `#version 300 es
+			precision highp float;
+			
+			in vec2 a_position;
+			in vec2 a_texcoord;
+			
+			out vec2 v_texcoord;
+			
+			void main() {
+				gl_Position = vec4(a_position, 0.0, 1.0);
+				v_texcoord = a_texcoord;
+			}
+		`;
+
+		const textFS = `#version 300 es
+			precision highp float;
+			
+			in vec2 v_texcoord;
+			uniform sampler2D u_texture;
+			uniform vec4 u_color;
+			
+			out vec4 outColor;
+			
+			void main() {
+				float alpha = texture(u_texture, v_texcoord).r;
+				outColor = vec4(u_color.rgb, u_color.a * alpha);
+			}
+		`;
+
+		this._programs.text = this._createProgram(textVS, textFS);
+
+		const imageVS = `#version 300 es
+			precision highp float;
+			
+			in vec2 a_position;
+			in vec2 a_texcoord;
+			
+			out vec2 v_texcoord;
+			
+			void main() {
+				gl_Position = vec4(a_position, 0.0, 1.0);
+				v_texcoord = a_texcoord;
+			}
+		`;
+
+		const imageFS = `#version 300 es
+			precision highp float;
+			
+			in vec2 v_texcoord;
+			uniform sampler2D u_texture;
+			uniform float u_alpha;
+			
+			out vec4 outColor;
+			
+			void main() {
+				vec4 texColor = texture(u_texture, v_texcoord);
+				outColor = vec4(texColor.rgb, texColor.a * u_alpha);
+			}
+		`;
+
+		this._programs.image = this._createProgram(imageVS, imageFS);
+		
+		console.log('=== SHADER COMPILATION COMPLETE ===');
+	}
+
+    /**
+     * Crée un programme WebGL à partir de sources de shader
+     * @private
+     */
+    _createProgram(vsSource, fsSource) {
+        const gl = this.gl;
+        
+        console.log('Compiling vertex shader...');
+        const vertexShader = this._compileShader(gl.VERTEX_SHADER, vsSource);
+        if (!vertexShader) {
+            console.error('Vertex shader compilation failed');
+            return null;
+        }
+        
+        console.log('Compiling fragment shader...');
+        const fragmentShader = this._compileShader(gl.FRAGMENT_SHADER, fsSource);
+        if (!fragmentShader) {
+            console.error('Fragment shader compilation failed');
+            return null;
+        }
+        
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Program link error:', gl.getProgramInfoLog(program));
+            gl.deleteProgram(program);
+            return null;
+        }
+        
+        console.log('Shader program compiled successfully');
+        return program;
+    }
+
+    /**
+     * Compile un shader
+     * @private
+     */
+    _compileShader(type, source) {
+        const gl = this.gl;
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error('Shader compile error:', gl.getShaderInfoLog(shader));
+            gl.deleteShader(shader);
+            return null;
+        }
+
+        return shader;
+    }
+
+    /**
+     * Crée les buffers GPU nécessaires
+     * @private
+     */
+    _createBuffers() {
+        const gl = this.gl;
+
+        // Buffer de position
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        this._buffers.set('position', positionBuffer);
+
+        // Buffer de couleur
+        const colorBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        this._buffers.set('color', colorBuffer);
+
+        // Buffer d'indices
+        const indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        this._buffers.set('indices', indexBuffer);
+
+        // Buffer de texture pour le texte
+        const texcoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+        this._buffers.set('texcoord', texcoordBuffer);
+    }
+
+    /**
+     * Configure l'interface CanvasRenderingContext2D
+     * @private
+     */
+    _setupInterface() {
+        // Méthodes de dessin de base
+        this.fillRect = this._fillRect.bind(this);
+        this.strokeRect = this._strokeRect.bind(this);
+        this.clearRect = this._clearRect.bind(this);
+        this.fillText = this._fillText.bind(this);
+        this.strokeText = this._strokeText.bind(this);
+        this.drawImage = this._drawImage.bind(this);
+
+        // Chemins (paths)
+        this.beginPath = this._beginPath.bind(this);
+        this.moveTo = this._moveTo.bind(this);
+        this.lineTo = this._lineTo.bind(this);
+        this.arc = this._arc.bind(this);
+        this.rect = this._rect.bind(this);
+        this.closePath = this._closePath.bind(this);
+        this.fill = this._fill.bind(this);
+        this.stroke = this._stroke.bind(this);
+
+        // Transformations
+        this.save = this._save.bind(this);
+        this.restore = this._restore.bind(this);
+        this.translate = this._translate.bind(this);
+        this.rotate = this._rotate.bind(this);
+        this.scale = this._scale.bind(this);
+        this.transform = this._transformMethod.bind(this);
+        this.setTransform = this._setTransform.bind(this);
+
+        // Dégradés et motifs
+        this.createLinearGradient = this._createLinearGradient.bind(this);
+        this.createRadialGradient = this._createRadialGradient.bind(this);
+
+        // Mesure de texte
+        this.measureText = this._measureText.bind(this);
+
+        // Méthodes supplémentaires
+        this.quadraticCurveTo = this._quadraticCurveTo.bind(this);
+        this.bezierCurveTo = this._bezierCurveTo.bind(this);
+        this.ellipse = this._ellipse.bind(this);
+        this.roundRect = this._roundRect.bind(this);
+
+        // État du contexte
+        this._setupGettersSetters();
+    }
+
+    /**
+     * Vérifie les erreurs WebGL
+     * @private
+     */
+    checkGLError(context) {
+        const gl = this.gl;
+        const error = gl.getError();
+        if (error !== gl.NO_ERROR) {
+            console.error(`WebGL error (${context}):`, error);
+            return false;
+        }
         return true;
-      }
     }
-    
-    return false;
-  }
 
-  // --- Drawing rectangles ---
-  clearRect(x, y, width, height) {
-    const [x1, y1] = this.transformPoint(x, y);
-    const [x2, y2] = this.transformPoint(x + width, y + height);
-    
-    const vertices = [
-      x1, y1, x2, y1, x2, y2,
-      x1, y1, x2, y2, x1, y2
-    ];
-    
-    const colors = new Array(6 * 4).fill(0);
-    for (let i = 0; i < 6; i++) {
-      colors[i * 4 + 3] = 1;
+    /**
+     * Configure les getters/setters pour les propriétés du contexte
+     * @private
+     */
+    _setupGettersSetters() {
+        const properties = [
+            'fillStyle',
+            'strokeStyle',
+            'lineWidth',
+            'lineCap',
+            'lineJoin',
+            'miterLimit',
+            'globalAlpha',
+            'textAlign',
+            'textBaseline',
+            'font',
+            'shadowColor',
+            'shadowBlur',
+            'shadowOffsetX',
+            'shadowOffsetY',
+            'filter'
+        ];
+
+        properties.forEach(prop => {
+            Object.defineProperty(this, prop, {
+                get: () => this._state[prop],
+                set: (value) => {
+                    this._state[prop] = value;
+                    this._updateStateDependencies(prop, value);
+                },
+                enumerable: true,
+                configurable: true
+            });
+        });
     }
-    
-    this.drawTriangles(vertices, colors);
-  }
 
-  fillRect(x, y, width, height) {
-    this.rect(x, y, width, height);
-    this.fill();
-  }
-
-  strokeRect(x, y, width, height) {
-    this.rect(x, y, width, height);
-    this.stroke();
-  }
-
-  // --- Images ---
-  drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight) {
-    if (arguments.length === 3) {
-      dx = sx; dy = sy;
-      sWidth = dWidth = image.width;
-      sHeight = dHeight = image.height;
-      sx = sy = 0;
-    } else if (arguments.length === 5) {
-      dx = sx; dy = sy;
-      dWidth = sWidth; dHeight = sHeight;
-      sx = sy = 0;
-      sWidth = image.width;
-      sHeight = image.height;
-    }
-    
-    const texture = this.getImageTexture(image);
-    if (!texture) return;
-    
-    const texWidth = image.width || texture.width;
-    const texHeight = image.height || texture.height;
-    
-    const texCoords = [
-      sx / texWidth, sy / texHeight,
-      (sx + sWidth) / texWidth, sy / texHeight,
-      (sx + sWidth) / texWidth, (sy + sHeight) / texHeight,
-      sx / texWidth, (sy + sHeight) / texHeight
-    ];
-    
-    this.drawTexturedQuad(texture, dx, dy, dWidth, dHeight, texCoords);
-  }
-
-  createImageData(width, height) {
-    return {
-      width,
-      height,
-      data: new Uint8ClampedArray(width * height * 4)
-    };
-  }
-
-  getImageData(sx, sy, sw, sh) {
-    const gl = this.gl;
-    const pixels = new Uint8Array(sw * sh * 4);
-    gl.readPixels(sx, this.canvas.height - sy - sh, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    
-    const imageData = this.createImageData(sw, sh);
-    
-    for (let y = 0; y < sh; y++) {
-      for (let x = 0; x < sw; x++) {
-        const srcIdx = ((sh - 1 - y) * sw + x) * 4;
-        const dstIdx = (y * sw + x) * 4;
-        
-        imageData.data[dstIdx] = pixels[srcIdx];
-        imageData.data[dstIdx + 1] = pixels[srcIdx + 1];
-        imageData.data[dstIdx + 2] = pixels[srcIdx + 2];
-        imageData.data[dstIdx + 3] = pixels[srcIdx + 3];
-      }
-    }
-    
-    return imageData;
-  }
-
-  putImageData(imageData, dx, dy, dirtyX = 0, dirtyY = 0, dirtyWidth = imageData.width, dirtyHeight = imageData.height) {
-    const gl = this.gl;
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, imageData.width, imageData.height, 0, 
-                  gl.RGBA, gl.UNSIGNED_BYTE, imageData.data);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    
-    this.drawTexturedQuad(texture, dx + dirtyX, dy + dirtyY, dirtyWidth, dirtyHeight);
-    gl.deleteTexture(texture);
-  }
-
-  // --- Gradients and patterns ---
-  createLinearGradient(x0, y0, x1, y1) {
-    const gradient = {
-      type: 'linear',
-      x0, y0, x1, y1,
-      stops: [],
-      texture: null,
-      dirty: true
-    };
-    
-    const id = `gradient_${Date.now()}_${Math.random()}`;
-    this.gradients.set(id, gradient);
-    
-    return {
-      addColorStop: (position, color) => {
-        gradient.stops.push({ position, color });
-        gradient.dirty = true;
-      },
-      _id: id
-    };
-  }
-
-  createRadialGradient(x0, y0, r0, x1, y1, r1) {
-    const gradient = {
-      type: 'radial',
-      x0, y0, r0, x1, y1, r1,
-      stops: [],
-      texture: null,
-      dirty: true
-    };
-    
-    const id = `gradient_${Date.now()}_${Math.random()}`;
-    this.gradients.set(id, gradient);
-    
-    return {
-      addColorStop: (position, color) => {
-        gradient.stops.push({ position, color });
-        gradient.dirty = true;
-      },
-      _id: id
-    };
-  }
-
-  createPattern(image, repetition) {
-    const pattern = {
-      image,
-      repetition: repetition || 'repeat',
-      texture: null
-    };
-    
-    return {
-      _pattern: pattern
-    };
-  }
-
-  // --- Properties ---
-  set fillStyle(value) { this.state.fillStyle = value; }
-  get fillStyle() { return this.state.fillStyle; }
-  
-  set strokeStyle(value) { this.state.strokeStyle = value; }
-  get strokeStyle() { return this.state.strokeStyle; }
-  
-  set lineWidth(value) { this.state.lineWidth = value; }
-  get lineWidth() { return this.state.lineWidth; }
-  
-  set font(value) { this.state.font = value; }
-  get font() { return this.state.font; }
-  
-  set textAlign(value) { this.state.textAlign = value; }
-  get textAlign() { return this.state.textAlign; }
-  
-  set textBaseline(value) { this.state.textBaseline = value; }
-  get textBaseline() { return this.state.textBaseline; }
-  
-  set globalAlpha(value) { this.state.globalAlpha = Math.max(0, Math.min(1, value)); }
-  get globalAlpha() { return this.state.globalAlpha; }
-  
-  set shadowColor(value) { this.state.shadowColor = value; }
-  get shadowColor() { return this.state.shadowColor; }
-  
-  set shadowBlur(value) { this.state.shadowBlur = value; }
-  get shadowBlur() { return this.state.shadowBlur; }
-  
-  set shadowOffsetX(value) { this.state.shadowOffsetX = value; }
-  get shadowOffsetX() { return this.state.shadowOffsetX; }
-  
-  set shadowOffsetY(value) { this.state.shadowOffsetY = value; }
-  get shadowOffsetY() { return this.state.shadowOffsetY; }
-  
-  set lineCap(value) { this.state.lineCap = value; }
-  get lineCap() { return this.state.lineCap; }
-  
-  set lineJoin(value) { this.state.lineJoin = value; }
-  get lineJoin() { return this.state.lineJoin; }
-  
-  set miterLimit(value) { this.state.miterLimit = value; }
-  get miterLimit() { return this.state.miterLimit; }
-  
-  set filter(value) { this.state.filter = value; }
-  get filter() { return this.state.filter; }
-  
-  getLineDash() { return [...this.state.lineDash]; }
-  setLineDash(segments) { this.state.lineDash = [...segments]; }
-  
-  getLineDashOffset() { return this.state.lineDashOffset; }
-  setLineDashOffset(value) { this.state.lineDashOffset = value; }
-  
-  set direction(value) { this.state.direction = value; }
-  get direction() { return this.state.direction; }
-
-  // --- WebGL specific ---
-  getContextAttributes() {
-    return {
-      alpha: true,
-      depth: false,
-      stencil: false,
-      antialias: true,
-      premultipliedAlpha: true,
-      preserveDrawingBuffer: false,
-      powerPreference: 'default',
-      desynchronized: false
-    };
-  }
-
-  // --- Méthodes utilitaires ---
-  drawFocusIfNeeded(element) {
-    // Pas d'implémentation pour WebGL
-  }
-
-  scrollPathIntoView() {
-    // Pas d'implémentation pour WebGL
-  }
-
-  // ===== MÉTHODES WEBGL INTERNES =====
-
-  initWebGL() {
-    const gl = this.gl;
-    
-    // Shaders
-    const vsSolidSource = `
-      attribute vec2 aPosition;
-      attribute vec4 aColor;
-      uniform mat3 uProjectionMatrix;
-      uniform mat3 uTransformMatrix;
-      varying vec4 vColor;
-      
-      void main() {
-        vec2 pos = (uTransformMatrix * vec3(aPosition, 1.0)).xy;
-        vec2 ndc = (uProjectionMatrix * vec3(pos, 1.0)).xy;
-        gl_Position = vec4(ndc, 0.0, 1.0);
-        vColor = aColor;
-      }
-    `;
-    
-    const fsSolidSource = `
-      precision mediump float;
-      varying vec4 vColor;
-      
-      void main() {
-        gl_FragColor = vColor;
-      }
-    `;
-    
-    const vsTextureSource = `
-      attribute vec2 aPosition;
-      attribute vec2 aTexCoord;
-      uniform mat3 uProjectionMatrix;
-      uniform mat3 uTransformMatrix;
-      varying vec2 vTexCoord;
-      
-      void main() {
-        vec2 pos = (uTransformMatrix * vec3(aPosition, 1.0)).xy;
-        vec2 ndc = (uProjectionMatrix * vec3(pos, 1.0)).xy;
-        gl_Position = vec4(ndc, 0.0, 1.0);
-        vTexCoord = aTexCoord;
-      }
-    `;
-    
-    const fsTextureSource = `
-      precision mediump float;
-      varying vec2 vTexCoord;
-      uniform sampler2D uTexture;
-      uniform float uAlpha;
-      uniform vec4 uTintColor;
-      
-      void main() {
-        vec4 texColor = texture2D(uTexture, vTexCoord);
-        float alpha = texColor.a * uAlpha;
-        gl_FragColor = vec4(mix(texColor.rgb, uTintColor.rgb, uTintColor.a), alpha);
-      }
-    `;
-    
-    this.solidProgram = this.createProgram(vsSolidSource, fsSolidSource);
-    this.textureProgram = this.createProgram(vsTextureSource, fsTextureSource);
-    
-	// ✅ CACHE DES UNIFORM LOCATIONS
-	this.uniformLocations = {
-	  solid: {
-		projection: this.gl.getUniformLocation(this.solidProgram, 'uProjectionMatrix'),
-		transform: this.gl.getUniformLocation(this.solidProgram, 'uTransformMatrix')
-	  },
-	  texture: {
-		projection: this.gl.getUniformLocation(this.textureProgram, 'uProjectionMatrix'),
-		transform: this.gl.getUniformLocation(this.textureProgram, 'uTransformMatrix'),
-		alpha: this.gl.getUniformLocation(this.textureProgram, 'uAlpha'),
-		tintColor: this.gl.getUniformLocation(this.textureProgram, 'uTintColor'),
-		texture: this.gl.getUniformLocation(this.textureProgram, 'uTexture')
-	  }
-	};
-
-    // Buffers
-    this.positionBuffer = gl.createBuffer();
-    this.colorBuffer = gl.createBuffer();
-    this.texCoordBuffer = gl.createBuffer();
-    this.indexBuffer = gl.createBuffer();
-    
-    // VAOs
-    this.solidVAO = gl.createVertexArray();
-    gl.bindVertexArray(this.solidVAO);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-    const posLoc = gl.getAttribLocation(this.solidProgram, 'aPosition');
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer);
-    const colorLoc = gl.getAttribLocation(this.solidProgram, 'aColor');
-    gl.enableVertexAttribArray(colorLoc);
-    gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
-    
-    this.textureVAO = gl.createVertexArray();
-    gl.bindVertexArray(this.textureVAO);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-    const texPosLoc = gl.getAttribLocation(this.textureProgram, 'aPosition');
-    gl.enableVertexAttribArray(texPosLoc);
-    gl.vertexAttribPointer(texPosLoc, 2, gl.FLOAT, false, 0, 0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-    const texCoordLoc = gl.getAttribLocation(this.textureProgram, 'aTexCoord');
-    gl.enableVertexAttribArray(texCoordLoc);
-    gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
-    
-    // Configuration WebGL
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.enable(gl.SCISSOR_TEST);
-    
-    this.updateProjectionMatrix();
-    this.createTextAtlas();
-  }
-
-  createProgram(vsSource, fsSource) {
-    const gl = this.gl;
-    const vs = this.compileShader(gl.VERTEX_SHADER, vsSource);
-    const fs = this.compileShader(gl.FRAGMENT_SHADER, fsSource);
-    
-    const program = gl.createProgram();
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error('Erreur link program:', gl.getProgramInfoLog(program));
-      return null;
-    }
-    
-    return program;
-  }
-
-  compileShader(type, source) {
-    const gl = this.gl;
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error('Erreur compilation shader:', gl.getShaderInfoLog(shader));
-      gl.deleteShader(shader);
-      return null;
-    }
-    
-    return shader;
-  }
-
-  updateProjectionMatrix() {
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    
-    this.projectionMatrix = new Float32Array([
-      2/w, 0,    0,
-      0,   -2/h, 0,
-      -1,  1,    1
-    ]);
-  }
-
-  flush() {
-    if (!this.batchEnabled) return;
-    
-    const gl = this.gl;
-    
-    if (this.batch.vertices.length > 0) {
-      gl.useProgram(this.solidProgram);
-      gl.bindVertexArray(this.solidVAO);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.vertices), gl.DYNAMIC_DRAW);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.colors), gl.DYNAMIC_DRAW);
-      
-      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
-	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
-      
-      const transformLoc = gl.getUniformLocation(this.solidProgram, 'uTransformMatrix');
-      gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
-      
-      gl.drawArrays(gl.TRIANGLES, 0, this.batch.vertices.length / 2);
-      
-      this.batch.vertices = [];
-      this.batch.colors = [];
-    }
-    
-    if (this.batch.textureVertices.length > 0 && this.batch.currentTexture) {
-      gl.useProgram(this.textureProgram);
-      gl.bindVertexArray(this.textureVAO);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.textureVertices), gl.DYNAMIC_DRAW);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.batch.textureTexCoords), gl.DYNAMIC_DRAW);
-      
-      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
-	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
-      
-      const transformLoc = gl.getUniformLocation(this.textureProgram, 'uTransformMatrix');
-      gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
-      
-      const alphaLoc = gl.getUniformLocation(this.textureProgram, 'uAlpha');
-      gl.uniform1f(alphaLoc, this.state.globalAlpha);
-      
-      const tintLoc = gl.getUniformLocation(this.textureProgram, 'uTintColor');
-      gl.uniform4f(tintLoc, 0, 0, 0, 0);
-      
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.batch.currentTexture);
-      gl.uniform1i(gl.getUniformLocation(this.textureProgram, 'uTexture'), 0);
-      
-      gl.drawArrays(gl.TRIANGLES, 0, this.batch.textureVertices.length / 2);
-      
-      this.batch.textureVertices = [];
-      this.batch.textureTexCoords = [];
-      this.batch.currentTexture = null;
-    }
-  }
-
-  drawTriangles(vertices, colors) {
-    if (this.batchEnabled) {
-      const baseIndex = this.batch.vertices.length / 2;
-      
-      this.batch.vertices.push(...vertices);
-      this.batch.colors.push(...colors);
-      
-      if (this.batch.vertices.length >= 6000) {
-        this.flush();
-      }
-    } else {
-      const gl = this.gl;
-      gl.useProgram(this.solidProgram);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
-      
-      const posLoc = gl.getAttribLocation(this.solidProgram, 'aPosition');
-      gl.enableVertexAttribArray(posLoc);
-      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-      
-      const colorLoc = gl.getAttribLocation(this.solidProgram, 'aColor');
-      gl.enableVertexAttribArray(colorLoc);
-      gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
-      
-      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
-	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
-      
-      const transformLoc = gl.getUniformLocation(this.solidProgram, 'uTransformMatrix');
-      gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
-      
-      gl.drawArrays(gl.TRIANGLES, 0, vertices.length / 2);
-    }
-  }
-
-  drawTexturedQuad(texture, x, y, width, height, texCoords = null) {
-    if (this.batchEnabled) {
-      if (this.batch.currentTexture && this.batch.currentTexture !== texture) {
-        this.flush();
-      }
-      
-      this.batch.currentTexture = texture;
-      
-      const [x1, y1] = this.transformPoint(x, y);
-      const [x2, y2] = this.transformPoint(x + width, y + height);
-      
-      const vertices = [
-        x1, y1, x2, y1, x2, y2,
-        x1, y1, x2, y2, x1, y2
-      ];
-      
-      const uvs = texCoords || [
-        0, 0, 1, 0, 1, 1,
-        0, 0, 1, 1, 0, 1
-      ];
-      
-      this.batch.textureVertices.push(...vertices);
-      this.batch.textureTexCoords.push(...uvs);
-      
-      if (this.batch.textureVertices.length >= 6000) {
-        this.flush();
-      }
-    } else {
-      const gl = this.gl;
-      gl.useProgram(this.textureProgram);
-      
-      const [x1, y1] = this.transformPoint(x, y);
-      const [x2, y2] = this.transformPoint(x + width, y + height);
-      
-      const vertices = [
-        x1, y1, x2, y1, x2, y2, x1, y1, x2, y2, x1, y2
-      ];
-      
-      const uvs = texCoords || [
-        0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1
-      ];
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
-      
-      const posLoc = gl.getAttribLocation(this.textureProgram, 'aPosition');
-      gl.enableVertexAttribArray(posLoc);
-      gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
-      
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
-      
-      const texLoc = gl.getAttribLocation(this.textureProgram, 'aTexCoord');
-      gl.enableVertexAttribArray(texLoc);
-      gl.vertexAttribPointer(texLoc, 2, gl.FLOAT, false, 0, 0);
-      
-      gl.uniformMatrix3fv(this.uniformLocations.solid.projection, false, this.projectionMatrix);
-	  gl.uniformMatrix3fv(this.uniformLocations.solid.transform, false, new Float32Array(this.state.transform));
-      
-      const transformLoc = gl.getUniformLocation(this.textureProgram, 'uTransformMatrix');
-      gl.uniformMatrix3fv(transformLoc, false, new Float32Array(this.state.transform));
-      
-      const alphaLoc = gl.getUniformLocation(this.textureProgram, 'uAlpha');
-      gl.uniform1f(alphaLoc, this.state.globalAlpha);
-      
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-      gl.uniform1i(gl.getUniformLocation(this.textureProgram, 'uTexture'), 0);
-      
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-    }
-  }
-
-  getImageTexture(image) {
-    if (!image) return null;
-    
-    const cacheKey = image.src || image._id || 'canvas_' + Date.now();
-    
-    if (this.imageCache.has(cacheKey)) {
-      return this.imageCache.get(cacheKey);
-    }
-    
-    const gl = this.gl;
-    const texture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    
-    if (image instanceof HTMLImageElement || image instanceof HTMLCanvasElement) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-    } else if (image instanceof ImageData) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, image.width, image.height, 0, 
-                    gl.RGBA, gl.UNSIGNED_BYTE, image.data);
-    } else if (image instanceof ImageBitmap) {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-    }
-    
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    
-    const textureInfo = { texture, width: image.width || 0, height: image.height || 0 };
-    this.imageCache.set(cacheKey, textureInfo);
-    
-    if (this.imageCache.size > 50) {
-      const firstKey = this.imageCache.keys().next().value;
-      const oldTex = this.imageCache.get(firstKey);
-      gl.deleteTexture(oldTex.texture);
-      this.imageCache.delete(firstKey);
-    }
-    
-    return textureInfo;
-  }
-
-  applyClip() {
-    if (!this.state.clipPath) {
-      this.gl.disable(this.gl.SCISSOR_TEST);
-      return;
-    }
-    
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    
-    for (const point of this.state.clipPath) {
-      const [px, py] = this.transformPoint(point[0], point[1]);
-      minX = Math.min(minX, px);
-      minY = Math.min(minY, py);
-      maxX = Math.max(maxX, px);
-      maxY = Math.max(maxY, py);
-    }
-    
-    const width = Math.max(0, maxX - minX);
-    const height = Math.max(0, maxY - minY);
-    
-    this.gl.enable(this.gl.SCISSOR_TEST);
-    this.gl.scissor(minX, this.canvas.height - minY - height, width, height);
-  }
-
-  // ===== MÉTHODES UTILITAIRES =====
-
-  transformPoint(x, y) {
-    const [a, b, c, d, e, f] = this.state.transform;
-    return [
-      a * x + c * y + e,
-      b * x + d * y + f
-    ];
-  }
-
-  parseColor(color) {
-    if (typeof color !== 'string') {
-      return [0, 0, 0, 1];
-    }
-    
-	// ✅ AJOUTER CACHE LOOKUP
-    if (this.colorCache.has(color)) {
-      return this.colorCache.get(color);
-    }
-    
-	if (color._id && this.gradients.has(color._id)) {
-      return [0, 0, 0, 1];
-    }
-    
-    if (color._pattern) {
-      return [0, 0, 0, 1];
-    }
-    
-    if (color.startsWith('#')) {
-      if (color.length === 4) {
-        const r = parseInt(color[1], 16) / 15;
-        const g = parseInt(color[2], 16) / 15;
-        const b = parseInt(color[3], 16) / 15;
-        return [r, g, b, 1];
-      } else if (color.length === 5) {
-        const r = parseInt(color[1], 16) / 15;
-        const g = parseInt(color[2], 16) / 15;
-        const b = parseInt(color[3], 16) / 15;
-        const a = parseInt(color[4], 16) / 15;
-        return [r, g, b, a];
-      } else if (color.length === 7) {
-        const r = parseInt(color.substr(1, 2), 16) / 255;
-        const g = parseInt(color.substr(3, 2), 16) / 255;
-        const b = parseInt(color.substr(5, 2), 16) / 255;
-        return [r, g, b, 1];
-      } else if (color.length === 9) {
-        const r = parseInt(color.substr(1, 2), 16) / 255;
-        const g = parseInt(color.substr(3, 2), 16) / 255;
-        const b = parseInt(color.substr(5, 2), 16) / 255;
-        const a = parseInt(color.substr(7, 2), 16) / 255;
-        return [r, g, b, a];
-      }
-    }
-    
-    const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (rgbMatch) {
-      const r = parseInt(rgbMatch[1]) / 255;
-      const g = parseInt(rgbMatch[2]) / 255;
-      const b = parseInt(rgbMatch[3]) / 255;
-      const a = rgbMatch[4] ? parseFloat(rgbMatch[4]) : 1;
-      return [r, g, b, a];
-    }
-    
-    const namedColors = {
-      'black': [0, 0, 0, 1], 'white': [1, 1, 1, 1], 'red': [1, 0, 0, 1],
-      'green': [0, 1, 0, 1], 'blue': [0, 0, 1, 1], 'yellow': [1, 1, 0, 1],
-      'cyan': [0, 1, 1, 1], 'magenta': [1, 0, 1, 1], 'gray': [0.5, 0.5, 0.5, 1],
-      'grey': [0.5, 0.5, 0.5, 1], 'transparent': [0, 0, 0, 0]
-    };
-	
-	// ✅ AVANT LE RETURN FINAL, AJOUTER :
-    if (this.colorCache.size >= this.colorCacheMaxSize) {
-      const firstKey = this.colorCache.keys().next().value;
-      this.colorCache.delete(firstKey);
-    }
-    this.colorCache.set(color, result); // result = le tableau [r,g,b,a]
-    
-    return namedColors[color.toLowerCase()] || [0, 0, 0, 1];
-  }
-
-  triangulatePolygon(polygon, fillRule) {
-    const triangles = [];
-    const vertices = [...polygon];
-    
-    while (vertices.length > 3) {
-      for (let i = 0; i < vertices.length; i++) {
-        const prev = vertices[(i - 1 + vertices.length) % vertices.length];
-        const curr = vertices[i];
-        const next = vertices[(i + 1) % vertices.length];
-        
-        if (this.isEar(prev, curr, next, vertices, fillRule)) {
-          triangles.push([prev, curr, next]);
-          vertices.splice(i, 1);
-          break;
+    /**
+     * Met à jour les dépendances d'état
+     * @private
+     */
+    _updateStateDependencies(prop, value) {
+        switch (prop) {
+            case 'globalAlpha':
+                // Ne rien faire, l'alpha est appliqué dans _parseColor
+                break;
+            case 'fillStyle':
+                this._currentFillColor = this._parseColor(value);
+                break;
+            case 'strokeStyle':
+                this._currentStrokeColor = this._parseColor(value);
+                break;
         }
-      }
     }
-    
-    if (vertices.length === 3) {
-      triangles.push(vertices);
+
+    /**
+     * Met à jour le style de remplissage
+     * @private
+     */
+    _updateFillStyle(value) {
+        this._currentFillColor = this._parseColor(value);
     }
-    
-    return triangles;
-  }
 
-  isEar(a, b, c, polygon, fillRule) {
-    const cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-    if (fillRule === 'nonzero' && cross <= 0) return false;
-    if (fillRule === 'evenodd' && Math.abs(cross) < 0.001) return false;
-    
-    const triangle = [a, b, c];
-    for (const p of polygon) {
-      if (p !== a && p !== b && p !== c && this.isPointInTriangle(p, triangle)) {
-        return false;
-      }
+    /**
+     * Met à jour le style de contour
+     * @private
+     */
+    _updateStrokeStyle(value) {
+        this._currentStrokeColor = this._parseColor(value);
     }
-    
-    return true;
-  }
 
-  isPointInTriangle(p, triangle) {
-    const [a, b, c] = triangle;
-    const area = 0.5 * (-b[1] * c[0] + a[1] * (-b[0] + c[0]) + a[0] * (b[1] - c[1]) + b[0] * c[1]);
-    const s = 1 / (2 * area) * (a[1] * c[0] - a[0] * c[1] + (c[1] - a[1]) * p[0] + (a[0] - c[0]) * p[1]);
-    const t = 1 / (2 * area) * (a[0] * b[1] - a[1] * b[0] + (a[1] - b[1]) * p[0] + (b[0] - a[0]) * p[1]);
-    return s > 0 && t > 0 && 1 - s - t > 0;
-  }
-
-  isLeft(p1, p2, p3) {
-    return (p2[0] - p1[0]) * (p3[1] - p1[1]) - (p3[0] - p1[0]) * (p2[1] - p1[1]);
-  }
-
-  isPointNearLine(px, py, x1, y1, x2, y2, tolerance) {
-    const A = px - x1;
-    const B = py - y1;
-    const C = x2 - x1;
-    const D = y2 - y1;
-    
-    const dot = A * C + B * D;
-    const lenSq = C * C + D * D;
-    let param = -1;
-    
-    if (lenSq !== 0) {
-      param = dot / lenSq;
+    /**
+     * Met à jour l'alpha global
+     * @private
+     */
+    _updateAlpha(value) {
+        // L'alpha est déjà appliqué dans _parseColor
     }
-    
-    let xx, yy;
-    
-    if (param < 0) {
-      xx = x1;
-      yy = y1;
-    } else if (param > 1) {
-      xx = x2;
-      yy = y2;
-    } else {
-      xx = x1 + param * C;
-      yy = y1 + param * D;
-    }
-    
-    const dx = px - xx;
-    const dy = py - yy;
-    return Math.sqrt(dx * dx + dy * dy) <= tolerance;
-  }
 
-  drawLine(x1, y1, x2, y2, width, color, alpha) {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    const angle = Math.atan2(dy, dx);
-    
-    const halfWidth = width / 2;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-    
-    const vertices = [
-      x1 - sin * halfWidth, y1 + cos * halfWidth,
-      x1 + sin * halfWidth, y1 - cos * halfWidth,
-      x2 - sin * halfWidth, y2 + cos * halfWidth,
-      x1 + sin * halfWidth, y1 - cos * halfWidth,
-      x2 + sin * halfWidth, y2 - cos * halfWidth,
-      x2 - sin * halfWidth, y2 + cos * halfWidth
-    ];
-    
-    const colors = new Array(6 * 4).fill(0);
-    for (let i = 0; i < 6; i++) {
-      colors[i * 4] = color[0];
-      colors[i * 4 + 1] = color[1];
-      colors[i * 4 + 2] = color[2];
-      colors[i * 4 + 3] = alpha;
+    /**
+     * Dessine une courbe de Bézier quadratique
+     * @param {number} cpx - Point de contrôle X
+     * @param {number} cpy - Point de contrôle Y
+     * @param {number} x - Point final X
+     * @param {number} y - Point final Y
+     */
+    _quadraticCurveTo(cpx, cpy, x, y) {
+        this._lineTo(x, y); // Implémentation simplifiée
     }
-    
-    this.drawTriangles(vertices, colors);
-  }
 
-  endFrame() {
-    this.flush();
-  }
+    /**
+     * Dessine une courbe de Bézier cubique
+     * @param {number} cp1x - Premier point de contrôle X
+     * @param {number} cp1y - Premier point de contrôle Y
+     * @param {number} cp2x - Deuxième point de contrôle X
+     * @param {number} cp2y - Deuxième point de contrôle Y
+     * @param {number} x - Point final X
+     * @param {number} y - Point final Y
+     */
+    _bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y) {
+        this._lineTo(x, y); // Implémentation simplifiée
+    }
+
+    /**
+     * Dessine une ellipse
+     * @param {number} x - Centre X
+     * @param {number} y - Centre Y
+     * @param {number} radiusX - Rayon horizontal
+     * @param {number} radiusY - Rayon vertical
+     * @param {number} rotation - Rotation en radians
+     * @param {number} startAngle - Angle de départ
+     * @param {number} endAngle - Angle de fin
+     * @param {boolean} anticlockwise - Sens anti-horaire
+     */
+    _ellipse(x, y, radiusX, radiusY, rotation, startAngle, endAngle, anticlockwise = false) {
+        // Implémentation simplifiée - utilise arc() pour un cercle
+        if (radiusX === radiusY) {
+            this.arc(x, y, radiusX, startAngle, endAngle, anticlockwise);
+        } else {
+            // Pour une ellipse, on peut approximer avec plusieurs arcs
+            const segments = 16;
+            const angleStep = (endAngle - startAngle) / segments;
+            
+            if (!this._path.currentSubpath.length) {
+                const firstX = x + Math.cos(startAngle) * radiusX;
+                const firstY = y + Math.sin(startAngle) * radiusY;
+                this._moveTo(firstX, firstY);
+            }
+            
+            for (let i = 1; i <= segments; i++) {
+                const angle = startAngle + angleStep * i;
+                const px = x + Math.cos(angle) * radiusX;
+                const py = y + Math.sin(angle) * radiusY;
+                this._lineTo(px, py);
+            }
+        }
+    }
+
+    /**
+     * Arrondit les coins d'un rectangle
+     * @param {number} x - Position X
+     * @param {number} y - Position Y
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     * @param {number|number[]} radii - Rayon(s) d'arrondi
+     */
+    _roundRect(x, y, width, height, radii) {
+        // Implémentation simplifiée de roundRect
+        const radius = Array.isArray(radii) ? radii[0] : radii;
+        
+        this.beginPath();
+        
+        if (radius === 0) {
+            // Rectangle normal
+            this.rect(x, y, width, height);
+        } else {
+            // Rectangle avec coins arrondis
+            this.moveTo(x + radius, y);
+            this.lineTo(x + width - radius, y);
+            this.quadraticCurveTo(x + width, y, x + width, y + radius);
+            this.lineTo(x + width, y + height - radius);
+            this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+            this.lineTo(x + radius, y + height);
+            this.quadraticCurveTo(x, y + height, x, y + height - radius);
+            this.lineTo(x, y + radius);
+            this.quadraticCurveTo(x, y, x + radius, y);
+            this.closePath();
+        }
+    }
+
+    // ===== IMPLÉMENTATION DES MÉTHODES CANVAS 2D =====
+
+    /**
+     * Remplit un rectangle
+     * @param {number} x - Position X
+     * @param {number} y - Position Y
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     */
+   _fillRect(x, y, width, height) {
+    // FORCER des dimensions positives
+    const actualX = Math.min(x, x + width);
+    const actualY = Math.min(y, y + height);
+    const actualWidth = Math.abs(width);
+    const actualHeight = Math.abs(height);
+    
+    console.log('_fillRect corrected:', {
+        original: {x, y, width, height},
+        corrected: {actualX, actualY, actualWidth, actualHeight}
+    });
+    
+    const color = this._parseColor(this.fillStyle);
+    color[3] *= this.globalAlpha;
+    
+    // Créer un rectangle avec 2 triangles (TOUJOURS positif)
+    const vertices = new Float32Array([
+        actualX, actualY,
+        actualX + actualWidth, actualY,
+        actualX, actualY + actualHeight,
+        actualX + actualWidth, actualY + actualHeight
+    ]);
+        
+        // Créer un rectangle avec 2 triangles
+     
+        const colors = new Float32Array(16);
+        for (let i = 0; i < 4; i++) {
+            colors[i*4] = color[0];
+            colors[i*4+1] = color[1];
+            colors[i*4+2] = color[2];
+            colors[i*4+3] = color[3];
+        }
+        
+        const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
+        
+        this._drawTriangles(vertices, colors, indices, this._getCurrentMatrix());
+    }
+
+    /**
+     * Dessine le contour d'un rectangle
+     * @param {number} x - Position X
+     * @param {number} y - Position Y
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     */
+    _strokeRect(x, y, width, height) {
+        const lineWidth = this.lineWidth;
+        const halfWidth = lineWidth / 2;
+
+        // Dessiner 4 lignes pour former le rectangle
+        this._strokeLine(x - halfWidth, y, x + width + halfWidth, y); // Haut
+        this._strokeLine(x + width, y - halfWidth, x + width, y + height + halfWidth); // Droite
+        this._strokeLine(x + width + halfWidth, y + height, x - halfWidth, y + height); // Bas
+        this._strokeLine(x, y + height + halfWidth, x, y - halfWidth); // Gauche
+    }
+
+    /**
+     * Efface une zone rectangulaire
+     * @param {number} x - Position X
+     * @param {number} y - Position Y
+     * @param {number} width - Largeur
+     * @param {number} height - Hauteur
+     */
+    _clearRect(x, y, width, height) {
+        const gl = this.gl;
+
+        // Sauvegarder l'état actuel
+        gl.enable(gl.SCISSOR_TEST);
+        gl.scissor(x * this.dpr, (this.height - y - height) * this.dpr, 
+                   width * this.dpr, height * this.dpr);
+
+        // Effacer avec la couleur de fond
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        // Restaurer
+        gl.disable(gl.SCISSOR_TEST);
+    }
+
+    /**
+     * Dessine du texte rempli
+     * @param {string} text - Texte à dessiner
+     * @param {number} x - Position X
+     * @param {number} y - Position Y
+     * @param {number} maxWidth - Largeur maximale (optionnelle)
+     */
+    _fillText(text, x, y, maxWidth) {
+        this._renderText(text, x, y, maxWidth, 'fill');
+    }
+
+    /**
+     * Dessine le contour du texte
+     * @param {string} text - Texte à dessiner
+     * @param {number} x - Position X
+     * @param {number} y - Position Y
+     * @param {number} maxWidth - Largeur maximale (optionnelle)
+     */
+    _strokeText(text, x, y, maxWidth) {
+        this._renderText(text, x, y, maxWidth, 'stroke');
+    }
+
+    /**
+     * Dessine une image
+     * @param {HTMLImageElement|HTMLCanvasElement|HTMLVideoElement|ImageBitmap} image - Image à dessiner
+     * @param {number} sx - Source X (pour le découpage)
+     * @param {number} sy - Source Y (pour le découpage)
+     * @param {number} sWidth - Largeur source (pour le découpage)
+     * @param {number} sHeight - Hauteur source (pour le découpage)
+     * @param {number} dx - Destination X
+     * @param {number} dy - Destination Y
+     * @param {number} dWidth - Largeur destination
+     * @param {number} dHeight - Hauteur destination
+     */
+    _drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight) {
+        // Gestion des différentes signatures
+        if (arguments.length === 3) {
+            // drawImage(image, dx, dy)
+            dx = sx;
+            dy = sy;
+            sx = sy = 0;
+            sWidth = image.width;
+            sHeight = image.height;
+            dWidth = sWidth;
+            dHeight = sHeight;
+        } else if (arguments.length === 5) {
+            // drawImage(image, dx, dy, dWidth, dHeight)
+            dWidth = sWidth;
+            dHeight = sHeight;
+            sWidth = image.width;
+            sHeight = image.height;
+            sx = sy = 0;
+        }
+
+        const gl = this.gl;
+        const matrix = this._getCurrentMatrix();
+
+        // Créer ou réutiliser une texture
+        let texture = this._textures.get(image);
+        if (!texture) {
+            texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            this._textures.set(image, texture);
+        }
+
+        // Coordonnées de texture normalisées
+        const texCoords = new Float32Array([
+            sx / image.width, sy / image.height,
+            (sx + sWidth) / image.width, sy / image.height,
+            sx / image.width, (sy + sHeight) / image.height,
+            (sx + sWidth) / image.width, (sy + sHeight) / image.height
+        ]);
+
+        // Vertices du rectangle
+        const vertices = new Float32Array([
+            dx, dy,
+            dx + dWidth, dy,
+            dx, dy + dHeight,
+            dx + dWidth, dy + dHeight
+        ]);
+
+        // Dessiner
+        this._drawTexturedQuad(vertices, texCoords, texture, matrix);
+    }
+
+    // ===== GESTION DES CHEMINS (PATHS) =====
+
+    _beginPath() {
+        this._path.points = [];
+        this._path.subpaths = [];
+        this._path.currentSubpath = [];
+    }
+
+    _moveTo(x, y) {
+        if (this._path.currentSubpath.length > 0) {
+            this._path.subpaths.push([...this._path.currentSubpath]);
+        }
+        this._path.currentSubpath = [{ x, y, type: 'move' }];
+        this._path.points.push({ x, y, type: 'move' });
+    }
+
+    _lineTo(x, y) {
+        this._path.currentSubpath.push({ x, y, type: 'line' });
+        this._path.points.push({ x, y, type: 'line' });
+    }
+
+    _arc(x, y, radius, startAngle, endAngle, anticlockwise = false) {
+        const segments = Math.max(8, Math.ceil(Math.abs(endAngle - startAngle) * radius / 2));
+        const angleStep = (endAngle - startAngle) / segments;
+        
+        if (!this._path.currentSubpath.length) {
+            const firstX = x + Math.cos(startAngle) * radius;
+            const firstY = y + Math.sin(startAngle) * radius;
+            this._moveTo(firstX, firstY);
+        }
+
+        for (let i = 1; i <= segments; i++) {
+            const angle = startAngle + angleStep * i;
+            const px = x + Math.cos(angle) * radius;
+            const py = y + Math.sin(angle) * radius;
+            this._lineTo(px, py);
+        }
+    }
+
+    _rect(x, y, width, height) {
+        this._moveTo(x, y);
+        this._lineTo(x + width, y);
+        this._lineTo(x + width, y + height);
+        this._lineTo(x, y + height);
+        this._closePath();
+    }
+
+    _closePath() {
+        if (this._path.currentSubpath.length > 1) {
+            const first = this._path.currentSubpath[0];
+            this._lineTo(first.x, first.y);
+        }
+        this._path.subpaths.push([...this._path.currentSubpath]);
+        this._path.currentSubpath = [];
+    }
+
+    _fill() {
+        // Implémentation simplifiée - triangulation du polygone
+        const points = [];
+        this._path.subpaths.forEach(subpath => {
+            subpath.forEach(point => {
+                if (point.type !== 'move') {
+                    points.push(point.x, point.y);
+                }
+            });
+        });
+
+        if (points.length < 6) return; // Pas assez de points pour un triangle
+
+        // Triangulation simple (pour démonstration)
+        // En production, utiliser une librairie de triangulation comme earcut
+        this._fillPolygon(points);
+    }
+
+    _stroke() {
+        this._path.subpaths.forEach(subpath => {
+            for (let i = 1; i < subpath.length; i++) {
+                const p1 = subpath[i - 1];
+                const p2 = subpath[i];
+                if (p1.type !== 'move' && p2.type !== 'move') {
+                    this._strokeLine(p1.x, p1.y, p2.x, p2.y);
+                }
+            }
+        });
+    }
+
+    // ===== TRANSFORMATIONS =====
+
+    _save() {
+        // Sauvegarder l'état ET la matrice de transformation
+        this._stateStack.push({ ...this._state });
+        this._transform.stack.push([...this._transform.matrix]);
+    }
+
+    _restore() {
+        if (this._stateStack.length > 0) {
+            this._state = this._stateStack.pop();
+        }
+        if (this._transform.stack.length > 0) {
+            this._transform.matrix = this._transform.stack.pop();
+        }
+    }
+
+    _translate(x, y) {
+        const m = this._transform.matrix;
+        m[4] += m[0] * x + m[2] * y;
+        m[5] += m[1] * x + m[3] * y;
+    }
+
+    _getCurrentMatrix() {
+		const m = this._transform.matrix;
+		
+		// Si pas de transformation, ajouter un scale pour pixels→NDC
+		if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1) {
+			// Matrice identité modifiée pour scale
+			return [
+				1, 0,
+				0, 1,
+				0, 0
+			];
+		}
+		
+		return m;
+	}
+
+    _rotate(angle) {
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const m = this._transform.matrix;
+        
+        const m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3];
+        
+        m[0] = m0 * cos + m2 * sin;
+        m[1] = m1 * cos + m3 * sin;
+        m[2] = m0 * -sin + m2 * cos;
+        m[3] = m1 * -sin + m3 * cos;
+    }
+
+    _scale(x, y) {
+        const m = this._transform.matrix;
+        m[0] *= x;
+        m[1] *= x;
+        m[2] *= y;
+        m[3] *= y;
+    }
+
+    _transformMethod(a, b, c, d, e, f) {
+        const m = this._transform.matrix;
+        const m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3], m4 = m[4], m5 = m[5];
+        
+        m[0] = m0 * a + m2 * b;
+        m[1] = m1 * a + m3 * b;
+        m[2] = m0 * c + m2 * d;
+        m[3] = m1 * c + m3 * d;
+        m[4] = m0 * e + m2 * f + m4;
+        m[5] = m1 * e + m3 * f + m5;
+    }
+
+    _setTransform(a, b, c, d, e, f) {
+        this._transform.matrix = [a, b, c, d, e, f];
+    }
+
+    // ===== DÉGRADÉS =====
+
+    _createLinearGradient(x0, y0, x1, y1) {
+        const gradient = {
+            type: 'linear',
+            x0, y0, x1, y1,
+            stops: []
+        };
+        
+        const id = `gradient_${Date.now()}_${Math.random()}`;
+        this._gradients.set(id, gradient);
+        
+        return {
+            addColorStop: (position, color) => {
+                gradient.stops.push({ position, color });
+            },
+            _id: id
+        };
+    }
+
+    _createRadialGradient(x0, y0, r0, x1, y1, r1) {
+        const gradient = {
+            type: 'radial',
+            x0, y0, r0, x1, y1, r1,
+            stops: []
+        };
+        
+        const id = `gradient_${Date.now()}_${Math.random()}`;
+        this._gradients.set(id, gradient);
+        
+        return {
+            addColorStop: (position, color) => {
+                gradient.stops.push({ position, color });
+            },
+            _id: id
+        };
+    }
+
+    // ===== MESURE DE TEXTE =====
+
+    _measureText(text) {
+        const font = this._parseFont(this.font);
+        const ctx = document.createElement('canvas').getContext('2d');
+        
+        // Configurer le contexte temporaire avec la même police
+        ctx.font = this.font;
+        
+        const metrics = ctx.measureText(text);
+        
+        // Ajuster selon textBaseline
+        let actualBoundingBoxAscent = metrics.actualBoundingBoxAscent || font.size;
+        let actualBoundingBoxDescent = metrics.actualBoundingBoxDescent || 0;
+        
+        switch (this.textBaseline) {
+            case 'top':
+                metrics.y = actualBoundingBoxAscent;
+                break;
+            case 'hanging':
+                metrics.y = actualBoundingBoxAscent * 0.8;
+                break;
+            case 'middle':
+                metrics.y = (actualBoundingBoxAscent - actualBoundingBoxDescent) / 2;
+                break;
+            case 'alphabetic':
+                metrics.y = 0;
+                break;
+            case 'ideographic':
+                metrics.y = actualBoundingBoxDescent;
+                break;
+            case 'bottom':
+                metrics.y = -actualBoundingBoxDescent;
+                break;
+        }
+        
+        return metrics;
+    }
+
+    // ===== MÉTHODES UTILITAIRES PRIVÉES =====
+
+    /**
+     * Parse une couleur en RGBA
+     * @private
+     */
+    _parseColor(color) {
+		// DEBUG: Voir ce qu'on reçoit
+		console.log('parseColor input:', color, typeof color);
+		
+		// Si c'est un gradient (objet avec _id), retourne une couleur fixe
+		if (color && typeof color === 'object') {
+			console.warn('Gradient object detected, using fallback color');
+			// Vous pouvez choisir différentes stratégies :
+			
+			// 1. Retourner la première couleur du gradient si disponible
+			if (color.stops && color.stops.length > 0) {
+				const firstColor = color.stops[0].color;
+				if (typeof firstColor === 'string') {
+					return this._parseColor(firstColor);
+				}
+			}
+			
+			// 2. Retourner une couleur par défaut basée sur l'ID
+			if (color._id) {
+				// Générer une couleur déterministe basée sur l'ID
+				const hash = this._stringToHash(color._id);
+				return [
+					(hash % 255) / 255,
+					((hash >> 8) % 255) / 255,
+					((hash >> 16) % 255) / 255,
+					1
+				];
+			}
+			
+			// 3. Couleur de fallback
+			return [0.5, 0.5, 0.5, 1]; // Gris
+		}
+		
+		// Si c'est une string, parse normalement
+		if (typeof color === 'string') {
+			// ... votre parsing de couleur existant ...
+		}
+		
+		// Par défaut : rouge semi-transparent pour debug
+		return [1, 0, 0, 0.5];
+	}
+
+	// Ajoutez cette méthode utilitaire
+	_stringToHash(str) {
+		let hash = 0;
+		for (let i = 0; i < str.length; i++) {
+			hash = ((hash << 5) - hash) + str.charCodeAt(i);
+			hash = hash & hash; // Convertir en 32-bit integer
+		}
+		return Math.abs(hash);
+	}
+
+    /**
+     * Convertit une couleur hex en RGBA
+     * @private
+     */
+    _hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        
+        if (hex.length === 3) {
+            hex = hex.split('').map(c => c + c).join('');
+        }
+        
+        const r = parseInt(hex.substr(0, 2), 16) / 255;
+        const g = parseInt(hex.substr(2, 2), 16) / 255;
+        const b = parseInt(hex.substr(4, 2), 16) / 255;
+        const a = hex.length === 8 ? parseInt(hex.substr(6, 2), 16) / 255 : 1;
+        
+        return [r, g, b, a];
+    }
+
+    /**
+     * Parse la police
+     * @private
+     */
+    _parseFont(font) {
+        const match = font.match(/(\d+)px\s+(.+)/);
+        return {
+            size: match ? parseInt(match[1]) : 10,
+            family: match ? match[2] : 'sans-serif'
+        };
+    }
+
+    /**
+     * Dessine une ligne avec style
+     * @private
+     */
+    _strokeLine(x1, y1, x2, y2) {
+        const gl = this.gl;
+        const matrix = this._getCurrentMatrix();
+        const color = this._parseColor(this.strokeStyle);
+        const lineWidth = this.lineWidth;
+        
+        // Appliquer l'alpha global
+        color[3] *= this.globalAlpha;
+        
+        // Calculer le vecteur de la ligne
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length === 0) return;
+        
+        // Normaliser
+        const nx = -dy / length;
+        const ny = dx / length;
+        
+        const halfWidth = lineWidth / 2;
+        
+        // Créer un quadrilatère pour la ligne
+        const vertices = new Float32Array([
+            x1 + nx * halfWidth, y1 + ny * halfWidth,
+            x1 - nx * halfWidth, y1 - ny * halfWidth,
+            x2 + nx * halfWidth, y2 + ny * halfWidth,
+            x2 - nx * halfWidth, y2 - ny * halfWidth
+        ]);
+        
+        const colors = new Float32Array([
+            ...color, ...color, ...color, ...color
+        ]);
+        
+        const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
+        
+        this._drawTriangles(vertices, colors, indices, matrix);
+    }
+
+    /**
+     * Rendu de texte
+     * @private
+     */
+    _renderText(text, x, y, maxWidth, type) {
+        // Pour une implémentation complète, il faudrait :
+        // 1. Générer une texture atlas de caractères
+        // 2. Utiliser un shader de texte
+        // 3. Dessiner chaque caractère
+        
+        // Pour l'instant, on utilise un canvas 2D temporaire
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        
+        // Configurer le contexte temporaire
+        tempCtx.font = this.font;
+        tempCtx.textAlign = this.textAlign;
+        tempCtx.textBaseline = this.textBaseline;
+        
+        // Dessiner le texte
+        if (type === 'fill') {
+            tempCtx.fillStyle = this.fillStyle;
+            tempCtx.fillText(text, 0, 0, maxWidth);
+        } else {
+            tempCtx.strokeStyle = this.strokeStyle;
+            tempCtx.lineWidth = this.lineWidth;
+            tempCtx.strokeText(text, 0, 0, maxWidth);
+        }
+        
+        // Obtenir les dimensions
+        const metrics = tempCtx.measureText(text);
+        const width = metrics.width;
+        const height = parseInt(this.font) || 16;
+        
+        // Ajuster la position selon textAlign et textBaseline
+        let drawX = x;
+        let drawY = y;
+        
+        switch (this.textAlign) {
+            case 'center':
+                drawX -= width / 2;
+                break;
+            case 'right':
+            case 'end':
+                drawX -= width;
+                break;
+        }
+        
+        switch (this.textBaseline) {
+            case 'top':
+            case 'hanging':
+                drawY += height * 0.8;
+                break;
+            case 'middle':
+                drawY += height / 2;
+                break;
+            case 'bottom':
+                drawY -= height * 0.2;
+                break;
+        }
+        
+        // Dessiner l'image générée
+        this.drawImage(tempCanvas, drawX, drawY, width, height);
+    }
+
+    /**
+     * Dessine des triangles
+     * @private
+     */
+    _drawTriangles(vertices, colors, indices, matrix) {
+        const gl = this.gl;
+        const program = this._programs.basic;
+        console.log('_drawTriangles called:', {
+        vertices: '[' + Array.from(vertices).slice(0, 8).join(', ') + '...]',
+        colorsRGBA: Array.from(colors).slice(0, 4), // Affiche R,G,B,A
+        colorHex: this._rgbaToHex(Array.from(colors).slice(0, 4)),
+        indices: Array.from(indices),
+        screenCoords: `Rect at (${vertices[0]}, ${vertices[1]}) to (${vertices[4]}, ${vertices[5]})`
+    });
+        if (!program) {
+            console.error('Basic shader program not compiled!');
+            return;
+        }
+        
+        gl.useProgram(program);
+        
+        // 1. POSITIONS - utiliser le buffer existant
+        const positionBuffer = this._buffers.get('position');
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+        
+        const positionAttr = gl.getAttribLocation(program, 'a_position');
+        gl.enableVertexAttribArray(positionAttr);
+        gl.vertexAttribPointer(positionAttr, 2, gl.FLOAT, false, 0, 0);
+        
+        // 2. COULEURS - utiliser le buffer existant
+        const colorBuffer = this._buffers.get('color');
+        gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+        
+        const colorAttr = gl.getAttribLocation(program, 'a_color');
+        gl.enableVertexAttribArray(colorAttr);
+        gl.vertexAttribPointer(colorAttr, 4, gl.FLOAT, false, 0, 0);
+        
+        // 3. INDICES - utiliser le buffer existant
+        const indexBuffer = this._buffers.get('indices');
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.DYNAMIC_DRAW);
+        
+        // 4. MATRICE
+        const matrixUniform = gl.getUniformLocation(program, 'u_matrix');
+        if (matrixUniform) {
+            const m = matrix || [1, 0, 0, 1, 0, 0];
+            gl.uniformMatrix3fv(matrixUniform, false, new Float32Array([
+                m[0], m[1], 0,
+                m[2], m[3], 0,
+                m[4], m[5], 1
+            ]));
+        }
+        
+        // 5. RÉSOLUTION
+        const resolutionUniform = gl.getUniformLocation(program, 'u_resolution');
+        if (resolutionUniform) {
+            gl.uniform2f(resolutionUniform, this.width, this.height);
+        }
+        
+        // 6. DESSINER
+        gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
+        
+        // Vérifier les erreurs
+        this.checkGLError('drawTriangles');
+    }
+	
+	// Ajoutez cette méthode utilitaire
+	_rgbaToHex(rgba) {
+		const [r, g, b, a] = rgba;
+		const toHex = (n) => Math.round(n * 255).toString(16).padStart(2, '0');
+		return `#${toHex(r)}${toHex(g)}${toHex(b)} (alpha: ${a.toFixed(2)})`;
+	}
+
+    /**
+     * Dessine un quadrilatère texturé
+     * @private
+     */
+    _drawTexturedQuad(vertices, texCoords, texture, matrix) {
+        const gl = this.gl;
+        const program = this._programs.image;
+        
+        gl.useProgram(program);
+        
+        // Upload vertices
+        const positionBuffer = this._buffers.get('position');
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STREAM_DRAW);
+        
+        const positionAttr = gl.getAttribLocation(program, 'a_position');
+        gl.enableVertexAttribArray(positionAttr);
+        gl.vertexAttribPointer(positionAttr, 2, gl.FLOAT, false, 0, 0);
+        
+        // Upload texture coordinates
+        const texcoordBuffer = this._buffers.get('texcoord');
+        gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, texCoords, gl.STREAM_DRAW);
+        
+        const texcoordAttr = gl.getAttribLocation(program, 'a_texcoord');
+        gl.enableVertexAttribArray(texcoordAttr);
+        gl.vertexAttribPointer(texcoordAttr, 2, gl.FLOAT, false, 0, 0);
+        
+        // Set texture
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        const textureUniform = gl.getUniformLocation(program, 'u_texture');
+        gl.uniform1i(textureUniform, 0);
+        
+        // Set matrix
+        const matrixUniform = gl.getUniformLocation(program, 'u_matrix');
+        gl.uniformMatrix3fv(matrixUniform, false, new Float32Array([
+            matrix[0], matrix[1], 0,
+            matrix[2], matrix[3], 0,
+            matrix[4], matrix[5], 1
+        ]));
+        
+        // Set alpha
+        const alphaUniform = gl.getUniformLocation(program, 'u_alpha');
+        gl.uniform1f(alphaUniform, this.globalAlpha);
+        
+        // Draw as triangle strip
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    /**
+     * Remplit un polygone
+     * @private
+     */
+    _fillPolygon(points) {
+        // Pour une implémentation complète, utiliser une librairie de triangulation
+        // Ici, dessin simple pour démonstration
+        const gl = this.gl;
+        
+        if (points.length < 6) return;
+        
+        // Convertir en vertices
+        const vertices = new Float32Array(points);
+        
+        // Générer des indices pour triangulation simple
+        const indices = [];
+        for (let i = 1; i < points.length / 2 - 1; i++) {
+            indices.push(0, i, i + 1);
+        }
+        
+        const indexArray = new Uint16Array(indices);
+        
+        // Couleur de remplissage
+        const color = this._parseColor(this.fillStyle);
+        color[3] *= this.globalAlpha;
+        
+        const colors = new Float32Array(points.length / 2 * 4);
+        for (let i = 0; i < points.length / 2; i++) {
+            colors[i * 4] = color[0];
+            colors[i * 4 + 1] = color[1];
+            colors[i * 4 + 2] = color[2];
+            colors[i * 4 + 3] = color[3];
+        }
+        
+        // Dessiner
+        this._drawTriangles(vertices, colors, indexArray, this._getCurrentMatrix());
+    }
+
+    /**
+     * Rend un dégradé
+     * @private
+     */
+    _renderGradient(gradientId) {
+        // Implémentation simplifiée - retourne la première couleur
+        const gradient = this._gradients.get(gradientId);
+        if (gradient && gradient.stops.length > 0) {
+            return this._parseColor(gradient.stops[0].color);
+        }
+        return [0, 0, 0, 1];
+    }
+
+    // ===== MÉTHODES DE GESTION DU CONTEXTE =====
+
+    /**
+     * Met à jour la matrice de projection pour le DPR
+     */
+    updateProjectionMatrix() {
+        const gl = this.gl;
+        
+        // La matrice de projection met à l'échelle selon le DPR
+        const scaleX = 2 / this.width * this.dpr;
+        const scaleY = -2 / this.height * this.dpr; // Inverser l'axe Y
+        
+        // Pour le shader, nous ajoutons une transformation de base
+        // qui convertit des coordonnées pixels en coordonnées NDC
+        this._baseMatrix = [
+            scaleX, 0, 0,
+            0, scaleY, 0,
+            -1, 1, 1
+        ];
+    }
+
+    /**
+     * Efface tout le canvas
+     */
+    clear() {
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+    }
+
+    /**
+     * Redimensionne le canvas
+     * @param {number} width - Nouvelle largeur
+     * @param {number} height - Nouvelle hauteur
+     */
+    resize(width, height) {
+        this.width = width;
+        this.height = height;
+        this.canvas.width = width * this.dpr;
+        this.canvas.height = height * this.dpr;
+        this.gl.viewport(0, 0, width * this.dpr, height * this.dpr);
+        this.updateProjectionMatrix();
+    }
+
+    /**
+     * Libère les ressources WebGL
+     */
+    dispose() {
+        const gl = this.gl;
+        
+        // Supprimer les textures
+        this._textures.forEach(texture => {
+            gl.deleteTexture(texture);
+        });
+        this._textures.clear();
+        
+        // Supprimer les buffers
+        this._buffers.forEach(buffer => {
+            gl.deleteBuffer(buffer);
+        });
+        this._buffers.clear();
+        
+        // Supprimer les programmes
+        Object.values(this._programs).forEach(program => {
+            if (program) gl.deleteProgram(program);
+        });
+        
+        // Vider les autres ressources
+        this._gradients.clear();
+        this._shaders.clear();
+    }
+
+    // ===== MÉTHODES DE COMPATIBILITÉ CANVAS 2D =====
+
+    /**
+     * Interface CanvasRenderingContext2D complète
+     * Certaines méthodes sont des no-ops pour la compatibilité
+     */
+    setLineDash() {} // À implémenter si besoin
+    getLineDash() { return []; }
+    getImageData() { return { data: new Uint8ClampedArray(0), width: 0, height: 0 }; }
+    putImageData() {}
+    createImageData() { return { data: new Uint8ClampedArray(0), width: 0, height: 0 }; }
+    createPattern() { return {}; }
+    isPointInPath() { return false; }
+    isPointInStroke() { return false; }
+    clip() {}
+    resetClip() {}
+    getContextAttributes() { return this.options; }
 }
 
 export default WebGLCanvasAdapter;
