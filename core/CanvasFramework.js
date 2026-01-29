@@ -2765,6 +2765,10 @@ class CanvasFramework {
             this.logicWorker.terminate();
         }
 
+		if (this.ctx && typeof this.ctx.destroy === 'function') {
+	        this.ctx.destroy();
+	    }
+
         // Nettoyer les écouteurs d'événements
         this.canvas.removeEventListener('touchstart', this.handleTouchStart);
         this.canvas.removeEventListener('touchmove', this.handleTouchMove);
@@ -2813,4 +2817,5 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
