@@ -52,7 +52,7 @@ Canvas UI Engine takes a **radically different approach**:
 ## 📦 Installation
 
 bash
-- npm install canvas-ui-engine
+- npm install canvasframework
 - npm install -D vite
 - npm create pixi.js@latest
 
