@@ -1,28 +1,68 @@
 {
   "name": "canvasframework",
-  "version": "0.3.6",
-  "description": "Canvas-based cross-platform UI framework (Material & Cupertino)",
+  "version": "0.4.11",
+  "description": "Canvas-based cross-platform UI framework (Material & Cupertino styles) – lightweight, high-performance, no DOM manipulation",
   "type": "module",
   "main": "./index.js",
+  "module": "./index.js",
+  "types": "./index.d.ts",  // ← si tu ajoutes des types TypeScript plus tard
   "exports": {
-    ".": "./index.js"
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.js"
+    }
   },
   "files": [
     "index.js",
-    "components",
-    "core",
-    "features",
-    "manager",
-    "layout",
-    "utils"
+    "components/**/*.js",
+    "core/**/*.js",
+    "features/**/*.js",
+    "manager/**/*.js",
+    "utils/**/*.js",
+    "layout/**/*.js",
+    "WebGLCanvasAdapter.js",
+    "UIBuilder.js",
+    "ThemeManager.js",
+    "README.md",
+    "LICENSE"
   ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "echo \"Add tests here\" && exit 0"  // ← placeholder pour tests futurs
+  },
+  "dependencies": {
+    "pixi.js": "^8.5.2"  // requis pour useWebGL: true (accélération texte)
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0"  // recommandé pour le dev/build
+  },
   "keywords": [
     "canvas",
-    "ui",
-    "framework",
-    "material",
+    "ui-framework",
+    "material-design",
     "cupertino",
-    "mobile"
+    "mobile-ui",
+    "no-dom",
+    "pixi.js",
+    "performance",
+    "cross-platform",
+    "pwa",
+    "canvas-ui"
   ],
-  "license": "MIT"
+  "author": "Bey",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ton-nom-utilisateur/canvasframework.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ton-nom-utilisateur/canvasframework/issues"
+  },
+  "homepage": "https://github.com/ton-nom-utilisateur/canvasframework#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }
