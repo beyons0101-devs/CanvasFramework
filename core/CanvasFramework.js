@@ -155,7 +155,7 @@ class CanvasFramework {
     constructor(canvasId, options = {}) {
         // ✅ AJOUTER: Démarrer le chronomètre
         const startTime = performance.now();
-        
+
         // ✅ OPTIMISATION OPTION 5: Contexte Canvas optimisé
         this.canvas = document.getElementById(canvasId);
         this.ctx = this.canvas.getContext('2d', {
@@ -163,13 +163,13 @@ class CanvasFramework {
             desynchronized: true, // ✅ Bypass la queue du navigateur
             willReadFrequently: false
         });
-        
-		this.backgroundColor = options.backgroundColor || '#f5f5f5'; // Blanc par défaut
-		
+
+        this.backgroundColor = options.backgroundColor || '#f5f5f5'; // Blanc par défaut
+
         this.width = window.innerWidth;
         this.height = window.innerHeight;
         this.dpr = window.devicePixelRatio || 1;
-        
+
         // ✅ OPTIMISATION OPTION 2: Configuration des optimisations
         this.optimizations = {
             enabled: options.optimizations !== false, // Activé par défaut
@@ -179,7 +179,7 @@ class CanvasFramework {
             useSpatialPartitioning: false, // Désactivé par défaut (à activer si beaucoup de composants)
             useImageDataOptimization: true
         };
-        
+
         // ✅ OPTIMISATION OPTION 2: Cache pour éviter les changements d'état inutiles
         this._stateCache = {
             fillStyle: null,
@@ -190,18 +190,22 @@ class CanvasFramework {
             lineWidth: null,
             globalAlpha: 1
         };
-        
+
         // ✅ OPTIMISATION OPTION 2: Cache des images/textes
         this.imageCache = new Map();
         this.textCache = new Map();
-        
+
         // ✅ OPTIMISATION OPTION 2: Double buffering
         this._doubleBuffer = null;
         this._bufferCtx = null;
         if (this.optimizations.useDoubleBuffering) {
             this._initDoubleBuffer();
         }
-        
+
+        // Scroll Worker
+        this.scrollWorker = this.createScrollWorker();
+        this.scrollWorker.onmessage = this.handleScrollWorkerMessage.bind(this);
+
         this.splashOptions = {
             enabled: options.splash?.enabled === true, // false par défaut
             duration: options.splash?.duration || 700,
@@ -220,7 +224,7 @@ class CanvasFramework {
             logoWidth: options.splash?.logoWidth || 100,
             logoHeight: options.splash?.logoHeight || 100
         };
-        
+
         // ✅ MODIFIER : Vérifier si le splash est activé
         if (this.splashOptions.enabled) {
             this.showSplashScreen();
@@ -229,7 +233,9 @@ class CanvasFramework {
         }
 
         this.platform = this.detectPlatform();
-
+        setTimeout(() => {
+            this.initScrollWorker();
+        }, 100);
         // État actuel + préférence
         this.themeMode = options.themeMode || 'system'; // 'light', 'dark', 'system'
         this.userThemeOverride = null; // null = suit system, sinon 'light' ou 'dark'
@@ -265,7 +271,7 @@ class CanvasFramework {
         } else {
             this.ctx = this.canvas.getContext('2d');
         }*/
-        
+
         // Calcule FPS
         this.fps = 0;
         this._frames = 0;
@@ -332,10 +338,10 @@ class CanvasFramework {
         };
 
         this.setupCanvas();
-        
+
         // ✅ OPTIMISATION OPTION 5: Désactiver l'antialiasing pour meilleures performances
         this._disableImageSmoothing();
-        
+
         this.setupEventListeners();
         this.setupHistoryListener();
 
@@ -381,17 +387,278 @@ class CanvasFramework {
         // ✅ AJOUTER: Marquer le premier rendu
         this._firstRenderDone = false;
         this._startupStartTime = startTime;
-        
+
         // ✅ OPTIMISATION OPTION 5: Partition spatiale pour le culling (optionnel)
         if (this.optimizations.useSpatialPartitioning) {
             this._initSpatialPartitioning();
         }
     }
-	
-	/**
+
+    /**
+     * Crée le Worker pour le calcul du scroll
+     */
+    createScrollWorker() {
+        const workerCode = `
+			let state = {
+				scrollOffset: 0,
+				scrollVelocity: 0,
+				scrollFriction: 0.95,
+				isDragging: false,
+				maxScroll: 0,
+				height: 0,
+				lastTouchY: 0,
+				components: []
+			};
+
+			const FIXED_COMPONENT_TYPES = [
+				'AppBar', 'BottomNavigationBar', 'Drawer', 'Dialog', 'Modal', 
+				'Tabs', 'FAB', 'Toast', 'Camera', 'QRCodeReader', 'Banner', 
+				'SliverAppBar', 'BottomSheet', 'ContextMenu', 'OpenStreetMap', 'SelectDialog'
+			];
+
+			const calculateMaxScroll = () => {
+				let maxY = 0;
+				
+				for (const comp of state.components) {
+					if (FIXED_COMPONENT_TYPES.includes(comp.type) || !comp.visible) continue;
+					const bottom = comp.y + comp.height;
+					if (bottom > maxY) maxY = bottom;
+				}
+				
+				return Math.max(0, maxY - state.height + 50);
+			};
+
+			const updateInertia = () => {
+				if (Math.abs(state.scrollVelocity) > 0.1 && !state.isDragging) {
+					state.scrollOffset += state.scrollVelocity;
+					state.maxScroll = calculateMaxScroll();
+					state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+					state.scrollVelocity *= state.scrollFriction;
+				} else {
+					state.scrollVelocity = 0;
+				}
+				
+				return {
+					scrollOffset: state.scrollOffset,
+					scrollVelocity: state.scrollVelocity,
+					maxScroll: state.maxScroll
+				};
+			};
+
+			const handleTouchMove = (deltaY) => {
+				if (state.isDragging) {
+					state.scrollOffset += deltaY;
+					state.maxScroll = calculateMaxScroll();
+					state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+					state.scrollVelocity = deltaY;
+					return {
+						scrollOffset: state.scrollOffset,
+						scrollVelocity: state.scrollVelocity,
+						maxScroll: state.maxScroll
+					};
+				}
+				return null;
+			};
+
+			self.onmessage = (e) => {
+				const { type, payload } = e.data;
+
+				switch (type) {
+					case 'INIT':
+						state = {
+							...state,
+							...payload
+						};
+						state.maxScroll = calculateMaxScroll();
+						self.postMessage({ 
+							type: 'INITIALIZED', 
+							payload: { 
+								scrollOffset: state.scrollOffset,
+								maxScroll: state.maxScroll 
+							}
+						});
+						break;
+
+					case 'UPDATE_COMPONENTS':
+						state.components = payload.components;
+						state.maxScroll = calculateMaxScroll();
+						self.postMessage({ 
+							type: 'MAX_SCROLL_UPDATED', 
+							payload: { maxScroll: state.maxScroll }
+						});
+						break;
+
+					case 'UPDATE_DIMENSIONS':
+						state.height = payload.height;
+						state.maxScroll = calculateMaxScroll();
+						self.postMessage({ 
+							type: 'MAX_SCROLL_UPDATED', 
+							payload: { maxScroll: state.maxScroll }
+						});
+						break;
+
+					case 'SET_DRAGGING':
+						state.isDragging = payload.isDragging;
+						if (!payload.isDragging) {
+							state.scrollVelocity = payload.lastVelocity || 0;
+						} else {
+							state.lastTouchY = payload.lastTouchY || 0;
+						}
+						break;
+
+					case 'HANDLE_TOUCH_MOVE':
+						const result = handleTouchMove(payload.deltaY);
+						if (result) {
+							self.postMessage({ 
+								type: 'SCROLL_UPDATED', 
+								payload: result 
+							});
+						}
+						break;
+
+					case 'UPDATE_INERTIA':
+						const inertiaResult = updateInertia();
+						self.postMessage({ 
+							type: 'SCROLL_UPDATED', 
+							payload: inertiaResult 
+						});
+						break;
+
+					case 'SET_SCROLL_OFFSET':
+						state.scrollOffset = payload.scrollOffset;
+						state.maxScroll = calculateMaxScroll();
+						state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+						self.postMessage({ 
+							type: 'SCROLL_UPDATED', 
+							payload: { 
+								scrollOffset: state.scrollOffset,
+								maxScroll: state.maxScroll 
+							}
+						});
+						break;
+
+					case 'GET_STATE':
+						self.postMessage({ 
+							type: 'STATE', 
+							payload: { 
+								scrollOffset: state.scrollOffset,
+								scrollVelocity: state.scrollVelocity,
+								maxScroll: state.maxScroll,
+								isDragging: state.isDragging
+							}
+						});
+						break;
+				}
+			};
+		`;
+
+        const blob = new Blob([workerCode], {
+            type: 'application/javascript'
+        });
+        return new Worker(URL.createObjectURL(blob));
+    }
+
+    /**
+     * Gère les messages du Scroll Worker
+     */
+    handleScrollWorkerMessage(e) {
+        const {
+            type,
+            payload
+        } = e.data;
+
+        switch (type) {
+            case 'SCROLL_UPDATED':
+                this.scrollOffset = payload.scrollOffset;
+                this.scrollVelocity = payload.scrollVelocity;
+                // ✅ CORRECTION IMPORTANTE : Vider le cache dirty pendant le scroll
+                if (Math.abs(payload.scrollVelocity) > 0.5) {
+                    this.dirtyComponents.clear();
+                }
+                // Mettre à jour le cache
+                this._cachedMaxScroll = payload.maxScroll;
+                this._maxScrollDirty = false;
+
+                // Marquer les composants comme sales pour mise à jour visuelle
+                if (Math.abs(payload.scrollVelocity) > 0) {
+                    this.components.forEach(comp => {
+                        if (!this.isFixedComponent(comp)) {
+                            this.markComponentDirty(comp);
+                        }
+                    });
+                }
+                break;
+
+            case 'MAX_SCROLL_UPDATED':
+                this._cachedMaxScroll = payload.maxScroll;
+                this._maxScrollDirty = false;
+                break;
+
+            case 'INITIALIZED':
+                this.scrollOffset = payload.scrollOffset;
+                this._cachedMaxScroll = payload.maxScroll;
+                this._maxScrollDirty = false;
+                break;
+
+            case 'STATE':
+                // Synchroniser l'état local
+                this.scrollOffset = payload.scrollOffset;
+                this.scrollVelocity = payload.scrollVelocity;
+                this.isDragging = payload.isDragging;
+                this._cachedMaxScroll = payload.maxScroll;
+                this._maxScrollDirty = false;
+                break;
+        }
+    }
+
+    /**
+     * Initialise le Scroll Worker avec les données actuelles
+     */
+    initScrollWorker() {
+        const componentsData = this.components.map(comp => ({
+            type: comp.constructor.name,
+            y: comp.y,
+            height: comp.height,
+            visible: comp.visible
+        }));
+
+        this.scrollWorker.postMessage({
+            type: 'INIT',
+            payload: {
+                scrollOffset: this.scrollOffset,
+                scrollVelocity: this.scrollVelocity,
+                scrollFriction: this.scrollFriction,
+                isDragging: this.isDragging,
+                height: this.height,
+                components: componentsData
+            }
+        });
+    }
+
+    /**
+     * Met à jour les composants dans le Worker
+     */
+    updateScrollWorkerComponents() {
+        const componentsData = this.components.map(comp => ({
+            type: comp.constructor.name,
+            y: comp.y,
+            height: comp.height,
+            visible: comp.visible
+        }));
+
+        this.scrollWorker.postMessage({
+            type: 'UPDATE_COMPONENTS',
+            payload: {
+                components: componentsData
+            }
+        });
+    }
+
+    /**
      * Initialise le double buffering pour éviter le flickering
      * @private
      */
+    // Dans _initDoubleBuffer(), assurez-vous de bien configurer le contexte
     _initDoubleBuffer() {
         this._doubleBuffer = document.createElement('canvas');
         this._bufferCtx = this._doubleBuffer.getContext('2d', {
@@ -404,8 +671,13 @@ class CanvasFramework {
         this._doubleBuffer.style.height = this.height + 'px';
         this._bufferCtx.scale(this.dpr, this.dpr);
         this._disableImageSmoothing(this._bufferCtx);
+
+        // ✅ INITIALISER le background du buffer
+        this._bufferCtx.fillStyle = this.backgroundColor || '#ffffff';
+        this._bufferCtx.fillRect(0, 0, this.width, this.height);
     }
-    
+
+
     /**
      * Désactive l'antialiasing pour meilleures performances
      * @private
@@ -417,7 +689,7 @@ class CanvasFramework {
         ctx.webkitImageSmoothingEnabled = false;
         ctx.mozImageSmoothingEnabled = false;
     }
-    
+
     /**
      * Initialise le spatial partitioning pour le viewport culling
      * @private
@@ -431,11 +703,11 @@ class CanvasFramework {
                 this._spatialGrid.grid.clear();
                 components.forEach(comp => {
                     if (!comp.visible) return;
-                    
+
                     const gridX = Math.floor(comp.x / this._spatialGrid.cellSize);
                     const gridY = Math.floor(comp.y / this._spatialGrid.cellSize);
                     const key = `${gridX},${gridY}`;
-                    
+
                     if (!this._spatialGrid.grid.has(key)) {
                         this._spatialGrid.grid.set(key, []);
                     }
@@ -446,7 +718,7 @@ class CanvasFramework {
                 const visible = [];
                 const startY = viewportY - 200; // Marge de 200px
                 const endY = viewportY + this.height + 200;
-                
+
                 this._spatialGrid.grid.forEach((comps, key) => {
                     comps.forEach(comp => {
                         const compBottom = comp.y + comp.height;
@@ -459,7 +731,7 @@ class CanvasFramework {
             }
         };
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 2: Rendu optimisé de rectangles
      * Évite les changements d'état inutiles
@@ -477,7 +749,7 @@ class CanvasFramework {
         }
         this.ctx.fillRect(x, y, w, h);
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 2: Texte avec cache
      * Cache le rendu du texte pour éviter de le redessiner à chaque frame
@@ -489,22 +761,24 @@ class CanvasFramework {
      */
     fillTextCached(text, x, y, font, color) {
         const key = `${text}_${font}_${color}`;
-        
+
         if (!this.textCache.has(key)) {
             // Rendu dans un canvas temporaire
             const temp = document.createElement('canvas');
-            const tempCtx = temp.getContext('2d', { alpha: false });
+            const tempCtx = temp.getContext('2d', {
+                alpha: false
+            });
             tempCtx.font = font;
-            
+
             const metrics = tempCtx.measureText(text);
             temp.width = Math.ceil(metrics.width);
             temp.height = Math.ceil(parseInt(font) * 1.2);
-            
+
             tempCtx.font = font;
             tempCtx.fillStyle = color;
             tempCtx.textBaseline = 'top';
             tempCtx.fillText(text, 0, 0);
-            
+
             this.textCache.set(key, {
                 canvas: temp,
                 width: temp.width,
@@ -512,11 +786,11 @@ class CanvasFramework {
                 baseline: parseInt(font)
             });
         }
-        
+
         const cached = this.textCache.get(key);
         this.ctx.drawImage(cached.canvas, x, y - cached.baseline);
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 5: Rendu batché pour plusieurs rectangles
      * Regroupe les rectangles par couleur pour réduire les appels draw
@@ -524,21 +798,21 @@ class CanvasFramework {
      */
     batchRect(rects) {
         if (!rects || rects.length === 0) return;
-        
+
         // Regrouper par couleur
         const batches = new Map();
-        
+
         rects.forEach(rect => {
             if (!batches.has(rect.color)) {
                 batches.set(rect.color, []);
             }
             batches.get(rect.color).push(rect);
         });
-        
+
         // Dessiner par batch
         batches.forEach((batchRects, color) => {
             this.ctx.fillStyle = color;
-            
+
             // Utiliser un seul path pour tous les rectangles de même couleur
             this.ctx.beginPath();
             batchRects.forEach(rect => {
@@ -547,7 +821,7 @@ class CanvasFramework {
             this.ctx.fill();
         });
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 5: Utiliser ImageData pour les mises à jour fréquentes
      * @param {number} x - Position X
@@ -559,37 +833,39 @@ class CanvasFramework {
     updateRegion(x, y, width, height, drawFn) {
         const imageData = this.ctx.getImageData(x, y, width, height);
         const data = imageData.data;
-        
+
         // Manipuler directement les pixels
         drawFn(data, width, height);
-        
+
         this.ctx.putImageData(imageData, x, y);
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 2: Flush du buffer pour le double buffering
      */
     flush() {
         if (this.optimizations.useDoubleBuffering && this._bufferCtx) {
-            // Dessiner le buffer sur le canvas réel
-            this.ctx.drawImage(this._doubleBuffer, 0, 0);
-            // Effacer le buffer pour le prochain frame
-            this._bufferCtx.clearRect(0, 0, this.width, this.height);
+            // Copier tout le buffer sur le canvas réel
+            this.ctx.drawImage(this._doubleBuffer, 0, 0, this.width, this.height);
+
+            // Réinitialiser le buffer pour le prochain frame
+            this._bufferCtx.fillStyle = this.backgroundColor || '#ffffff';
+            this._bufferCtx.fillRect(0, 0, this.width, this.height);
         }
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 5: Rendu optimisé avec viewport culling
      * @private
      */
     _renderOptimized() {
         const ctx = this.optimizations.useDoubleBuffering ? this._bufferCtx : this.ctx;
-        
+
         if (!ctx) return;
-        
+
         // Clear le canvas
         ctx.clearRect(0, 0, this.width, this.height);
-        
+
         // Séparer les composants fixes et scrollables
         const scrollableComponents = [];
         const fixedComponents = [];
@@ -605,7 +881,7 @@ class CanvasFramework {
         // Rendu des composants scrollables avec viewport culling optimisé
         ctx.save();
         ctx.translate(0, this.scrollOffset);
-        
+
         // ✅ OPTIMISATION: Utiliser le spatial partitioning si activé
         if (this.optimizations.useSpatialPartitioning && this._spatialGrid) {
             const visibleComps = this._spatialGrid.getVisible(-this.scrollOffset);
@@ -627,7 +903,7 @@ class CanvasFramework {
                 }
             }
         }
-        
+
         ctx.restore();
 
         // Rendu des composants fixes
@@ -636,52 +912,83 @@ class CanvasFramework {
                 comp.draw(ctx);
             }
         }
-        
+
         // Flush si on utilise le double buffering
         if (this.optimizations.useDoubleBuffering) {
             this.flush();
         }
     }
-    
+
     /**
      * ✅ OPTIMISATION OPTION 2: Rendu partiel (seulement les composants sales)
      * @private
      */
     _renderDirtyComponents() {
         const ctx = this.optimizations.useDoubleBuffering ? this._bufferCtx : this.ctx;
-        
-        if (!ctx) return;
-        
+
+        if (!ctx || this.dirtyComponents.size === 0) return;
+
+        // Séparer les composants sales par type
+        const fixedDirty = [];
+        const scrollableDirty = [];
+
         this.dirtyComponents.forEach(comp => {
             if (comp.visible) {
-                const isFixed = this.isFixedComponent(comp);
-                const y = isFixed ? comp.y : comp.y + this.scrollOffset;
-                
-                // Nettoyer la zone avant de redessiner
-                ctx.clearRect(
-                    comp.x - 1, 
-                    y - 1, 
-                    comp.width + 2, 
-                    comp.height + 2
-                );
-                
-                ctx.save();
-                if (!isFixed) ctx.translate(0, this.scrollOffset);
-                comp.draw(ctx);
-                ctx.restore();
-                
-                if (comp.markClean) comp.markClean();
+                if (this.isFixedComponent(comp)) {
+                    fixedDirty.push(comp);
+                } else {
+                    scrollableDirty.push(comp);
+                }
             }
         });
-        
+
+        // ✅ CORRECTION : Traiter séparément pour éviter les problèmes de contexte
+
+        // 1. Dessiner les composants scrollables d'abord
+        if (scrollableDirty.length > 0) {
+            for (let comp of scrollableDirty) {
+                const screenY = comp.y + this.scrollOffset;
+
+                // Nettoyer la zone avec le background
+                ctx.save();
+                ctx.fillStyle = this.backgroundColor || '#ffffff';
+                ctx.fillRect(comp.x - 2, screenY - 2, comp.width + 4, comp.height + 4);
+                ctx.restore();
+
+                // Dessiner le composant avec translation
+                ctx.save();
+                ctx.translate(0, this.scrollOffset);
+                comp.draw(ctx);
+                ctx.restore();
+
+                if (comp.markClean) comp.markClean();
+            }
+        }
+
+        // 2. Dessiner les composants fixes ensuite
+        if (fixedDirty.length > 0) {
+            for (let comp of fixedDirty) {
+                // Nettoyer la zone avec le background
+                ctx.save();
+                ctx.fillStyle = this.backgroundColor || '#ffffff';
+                ctx.fillRect(comp.x - 2, comp.y - 2, comp.width + 4, comp.height + 4);
+                ctx.restore();
+
+                // Dessiner le composant sans translation
+                comp.draw(ctx);
+
+                if (comp.markClean) comp.markClean();
+            }
+        }
+
         this.dirtyComponents.clear();
-        
+
         // Flush si on utilise le double buffering
         if (this.optimizations.useDoubleBuffering) {
             this.flush();
         }
     }
-    
+
     /**
      * Active/désactive une optimisation spécifique
      * @param {string} optimization - Nom de l'optimisation
@@ -690,8 +997,8 @@ class CanvasFramework {
     setOptimization(optimization, enabled) {
         if (this.optimizations.hasOwnProperty(optimization)) {
             this.optimizations[optimization] = enabled;
-            
-            switch(optimization) {
+
+            switch (optimization) {
                 case 'useDoubleBuffering':
                     if (enabled && !this._bufferCtx) {
                         this._initDoubleBuffer();
@@ -703,18 +1010,20 @@ class CanvasFramework {
                     }
                     break;
             }
-            
+
             // Marquer tous les composants comme sales pour forcer un redessin complet
             this.components.forEach(comp => this.markComponentDirty(comp));
         }
     }
-    
+
     /**
      * Obtient l'état des optimisations
      * @returns {Object} État des optimisations
      */
     getOptimizations() {
-        return { ...this.optimizations };
+        return {
+            ...this.optimizations
+        };
     }
 
     /**
@@ -858,17 +1167,17 @@ class CanvasFramework {
                 requestAnimationFrame(fade);
             } else {
                 this._splashFinished = true;
-				// ✅ AJOUTER : Réinitialiser complètement le contexte
-			    this.ctx.clearRect(0, 0, this.width, this.height);
-			    this.ctx.globalAlpha = 1;
-			    this.ctx.textAlign = 'start'; // ← IMPORTANT
-			    this.ctx.textBaseline = 'alphabetic'; // ← IMPORTANT
-			    this.ctx.font = '10px sans-serif'; // Valeur par défaut
-			    this.ctx.fillStyle = '#000000';
-			    this.ctx.strokeStyle = '#000000';
-			    this.ctx.lineWidth = 1;
-			    this.ctx.lineCap = 'butt';
-			    this.ctx.lineJoin = 'miter';
+                // ✅ AJOUTER : Réinitialiser complètement le contexte
+                this.ctx.clearRect(0, 0, this.width, this.height);
+                this.ctx.globalAlpha = 1;
+                this.ctx.textAlign = 'start'; // ← IMPORTANT
+                this.ctx.textBaseline = 'alphabetic'; // ← IMPORTANT
+                this.ctx.font = '10px sans-serif'; // Valeur par défaut
+                this.ctx.fillStyle = '#000000';
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 1;
+                this.ctx.lineCap = 'butt';
+                this.ctx.lineJoin = 'miter';
             }
         };
 
@@ -1245,16 +1554,18 @@ class CanvasFramework {
         this.canvas.style.width = this.width + 'px';
         this.canvas.style.height = this.height + 'px';
 
-		// ✅ AJOUTER: Appliquer le background au style CSS
-		this.canvas.style.backgroundColor = this.backgroundColor;
+        // ✅ AJOUTER: Appliquer le background au style CSS
+        this.canvas.style.backgroundColor = this.backgroundColor;
         // Échelle uniquement pour Canvas 2D
-		this.ctx.scale(this.dpr, this.dpr);
+        this.ctx.scale(this.dpr, this.dpr);
         /*if (!this.useWebGL) {
             this.ctx.scale(this.dpr, this.dpr);
         } else {
             // WebGL gère le DPR automatiquement via la matrice de projection
             this.ctx.updateProjectionMatrix();
         }*/
+
+
     }
 
     setupEventListeners() {
@@ -1727,6 +2038,16 @@ class CanvasFramework {
         const touch = e.touches[0];
         const pos = this.getTouchPos(touch);
         this.lastTouchY = pos.y;
+
+        // Informer le Worker
+        this.scrollWorker.postMessage({
+            type: 'SET_DRAGGING',
+            payload: {
+                isDragging: false,
+                lastTouchY: this.lastTouchY
+            }
+        });
+
         this.checkComponentsAtPosition(pos.x, pos.y, 'start');
     }
 
@@ -1739,15 +2060,27 @@ class CanvasFramework {
             const deltaY = Math.abs(pos.y - this.lastTouchY);
             if (deltaY > 5) {
                 this.isDragging = true;
+                this.scrollWorker.postMessage({
+                    type: 'SET_DRAGGING',
+                    payload: {
+                        isDragging: true,
+                        lastTouchY: this.lastTouchY
+                    }
+                });
             }
         }
 
         if (this.isDragging) {
             const deltaY = pos.y - this.lastTouchY;
-            this.scrollOffset += deltaY;
-            const maxScroll = this.getMaxScroll();
-            this.scrollOffset = Math.max(Math.min(this.scrollOffset, 0), -maxScroll);
-            this.scrollVelocity = deltaY;
+
+            // Déléguer le calcul au Worker
+            this.scrollWorker.postMessage({
+                type: 'HANDLE_TOUCH_MOVE',
+                payload: {
+                    deltaY
+                }
+            });
+
             this.lastTouchY = pos.y;
         } else {
             this.checkComponentsAtPosition(pos.x, pos.y, 'move');
@@ -1763,12 +2096,28 @@ class CanvasFramework {
             this.checkComponentsAtPosition(pos.x, pos.y, 'end');
         } else {
             this.isDragging = false;
+            this.scrollWorker.postMessage({
+                type: 'SET_DRAGGING',
+                payload: {
+                    isDragging: false,
+                    lastVelocity: this.scrollVelocity
+                }
+            });
         }
     }
 
     handleMouseDown(e) {
         this.isDragging = false;
         this.lastTouchY = e.clientY;
+
+        this.scrollWorker.postMessage({
+            type: 'SET_DRAGGING',
+            payload: {
+                isDragging: false,
+                lastTouchY: this.lastTouchY
+            }
+        });
+
         this.checkComponentsAtPosition(e.clientX, e.clientY, 'start');
     }
 
@@ -1777,15 +2126,26 @@ class CanvasFramework {
             const deltaY = Math.abs(e.clientY - this.lastTouchY);
             if (deltaY > 5) {
                 this.isDragging = true;
+                this.scrollWorker.postMessage({
+                    type: 'SET_DRAGGING',
+                    payload: {
+                        isDragging: true,
+                        lastTouchY: this.lastTouchY
+                    }
+                });
             }
         }
 
         if (this.isDragging) {
             const deltaY = e.clientY - this.lastTouchY;
-            this.scrollOffset += deltaY;
-            const maxScroll = this.getMaxScroll();
-            this.scrollOffset = Math.max(Math.min(this.scrollOffset, 0), -maxScroll);
-            this.scrollVelocity = deltaY;
+
+            this.scrollWorker.postMessage({
+                type: 'HANDLE_TOUCH_MOVE',
+                payload: {
+                    deltaY
+                }
+            });
+
             this.lastTouchY = e.clientY;
         } else {
             this.checkComponentsAtPosition(e.clientX, e.clientY, 'move');
@@ -1797,8 +2157,16 @@ class CanvasFramework {
             this.checkComponentsAtPosition(e.clientX, e.clientY, 'end');
         } else {
             this.isDragging = false;
+            this.scrollWorker.postMessage({
+                type: 'SET_DRAGGING',
+                payload: {
+                    isDragging: false,
+                    lastVelocity: this.scrollVelocity
+                }
+            });
         }
     }
+
 
     getTouchPos(touch) {
         const rect = this.canvas.getBoundingClientRect();
@@ -1943,8 +2311,12 @@ class CanvasFramework {
     }
 
     getMaxScroll() {
-        if (!this._maxScrollDirty) return this._cachedMaxScroll;
+        // Utiliser le cache du Worker
+        if (!this._maxScrollDirty && this._cachedMaxScroll !== undefined) {
+            return this._cachedMaxScroll;
+        }
 
+        // Fallback si le Worker n'est pas encore initialisé
         let maxY = 0;
         for (const comp of this.components) {
             if (this.isFixedComponent(comp) || !comp.visible) continue;
@@ -1952,9 +2324,7 @@ class CanvasFramework {
             if (bottom > maxY) maxY = bottom;
         }
 
-        this._cachedMaxScroll = Math.max(0, maxY - this.height + 50);
-        this._maxScrollDirty = false;
-        return this._cachedMaxScroll;
+        return Math.max(0, maxY - this.height + 50);
     }
 
     /*getMaxScroll() {
@@ -1966,23 +2336,31 @@ class CanvasFramework {
       }
       return Math.max(0, maxY - this.height + 50);
     }*/
-	
-	handleResize() {
-    	if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
-    
-    	this.resizeTimeout = setTimeout(() => {
-        	this.width = window.innerWidth;
-        	this.height = window.innerHeight;
-        	this.setupCanvas(); // ← Fait déjà tout le boulot
-        
-        	for (const comp of this.components) {
-            	if (comp._resize) {
-                	comp._resize(this.width, this.height);
-            	}
-        	}
-        	this._maxScrollDirty = true;
-    	}, 150);
-	}
+
+    handleResize() {
+        if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
+
+        this.resizeTimeout = setTimeout(() => {
+            this.width = window.innerWidth;
+            this.height = window.innerHeight;
+            this.setupCanvas();
+
+            // Mettre à jour les dimensions dans le Worker
+            this.scrollWorker.postMessage({
+                type: 'UPDATE_DIMENSIONS',
+                payload: {
+                    height: this.height
+                }
+            });
+
+            for (const comp of this.components) {
+                if (comp._resize) {
+                    comp._resize(this.width, this.height);
+                }
+            }
+            this.updateScrollWorkerComponents();
+        }, 150);
+    }
 
     /*handleResize() {
         if (this.resizeTimeout) clearTimeout(this.resizeTimeout); // ✅ AJOUTER
@@ -2006,7 +2384,7 @@ class CanvasFramework {
     add(component) {
         this.components.push(component);
         component._mount();
-        this._maxScrollDirty = true; // ✅ AJOUTER CETTE LIGNE
+        this.updateScrollWorkerComponents();
         return component;
     }
 
@@ -2015,12 +2393,13 @@ class CanvasFramework {
         if (index > -1) {
             component._unmount();
             this.components.splice(index, 1);
-            this._maxScrollDirty = true; // ✅ AJOUTER CETTE LIGNE
+            this.updateScrollWorkerComponents();
         }
     }
 
+    // 4. Modifiez markComponentDirty() pour éviter de marquer pendant le scroll
     markComponentDirty(component) {
-        if (this.optimizationEnabled) {
+        if (this.optimizationEnabled && !this.isDragging && Math.abs(this.scrollVelocity) < 5) {
             this.dirtyComponents.add(component);
         }
     }
@@ -2190,116 +2569,196 @@ class CanvasFramework {
     }
 
     startRenderLoop() {
-		const render = () => {
-			if (!this._splashFinished) {
-				requestAnimationFrame(render);
-				return;
-			}
-			
-			// 1️⃣ Scroll inertia
-			if (Math.abs(this.scrollVelocity) > 0.1 && !this.isDragging) {
-				this.scrollOffset += this.scrollVelocity;
-				this.scrollOffset = Math.max(Math.min(this.scrollOffset, 0), -this.getMaxScroll());
-				this.scrollVelocity *= this.scrollFriction;
-			} else {
-				this.scrollVelocity = 0;
-			}
+        let lastScrollOffset = this.scrollOffset;
+        let framesWithoutScroll = 0;
 
-			// 2️⃣ Clear canvas AVEC BACKGROUND
-			// Remplacer clearRect par fillRect avec ta couleur
-			this.ctx.fillStyle = this.backgroundColor || '#ffffff';
-			this.ctx.fillRect(0, 0, this.width, this.height);
+        const render = () => {
+            if (!this._splashFinished) {
+                requestAnimationFrame(render);
+                return;
+            }
 
-			// 3️⃣ Transition handling
-			if (this.transitionState.isTransitioning) {
-				this.updateTransition();
-			} else if (this.optimizationEnabled && this.dirtyComponents.size > 0) {
-				// Dirty components redraw
-				for (let comp of this.dirtyComponents) {
-					if (comp.visible) {
-						const isFixed = this.isFixedComponent(comp);
-						const y = isFixed ? comp.y : comp.y + this.scrollOffset;
+            // 1️⃣ Vérifier si le scroll a changé
+            const scrollChanged = Math.abs(this.scrollOffset - lastScrollOffset) > 0.1;
+            lastScrollOffset = this.scrollOffset;
 
-						// Pour les composants sales, nettoyer la zone AVEC le background
-						this.ctx.fillStyle = this.backgroundColor || '#ffffff';
-						this.ctx.fillRect(comp.x - 2, y - 2, comp.width + 4, comp.height + 4);
+            // 2️⃣ Clear canvas AVEC BACKGROUND (toujours faire un clear complet)
+            this.ctx.fillStyle = this.backgroundColor || '#ffffff';
+            this.ctx.fillRect(0, 0, this.width, this.height);
 
-						this.ctx.save();
-						if (!isFixed) this.ctx.translate(0, this.scrollOffset);
-						comp.draw(this.ctx);
-						this.ctx.restore();
+            // 3️⃣ Transition handling
+            if (this.transitionState.isTransitioning) {
+                this.updateTransition();
+            }
+            // 4️⃣ Rendu optimisé UNIQUEMENT si pas de scroll actif et peu de composants sales
+            else if (this.optimizationEnabled &&
+                this.dirtyComponents.size > 0 &&
+                !this.isDragging &&
+                Math.abs(this.scrollVelocity) < 0.5) {
 
-						// Overflow indicator style Flutter
-						const overflow = comp.getOverflow?.();
-						if (comp.markClean) comp.markClean();
-					}
-				}
-				this.dirtyComponents.clear();
-			} else {
-				// Full redraw
-				const scrollableComponents = [];
-				const fixedComponents = [];
+                // ✅ OPTIMISATION : Si on scroll, on fait un rendu complet pour éviter le clignotement
+                if (scrollChanged && this.dirtyComponents.size < this.components.length / 2) {
+                    // Si beaucoup de composants sales + scroll, rendu complet
+                    this.renderFull();
+                } else {
+                    // Sinon, rendu optimisé
+                    this._renderDirtyComponents();
+                }
+            } else {
+                // Full redraw (plus stable pendant le scroll)
+                this.renderFull();
+            }
 
-				for (let comp of this.components) {
-					if (this.isFixedComponent(comp)) fixedComponents.push(comp);
-					else scrollableComponents.push(comp);
-				}
+            // 5️⃣ FPS
+            this._frames++;
+            const now = performance.now();
+            if (now - this._lastFpsTime >= 1000) {
+                this.fps = this._frames;
+                this._frames = 0;
+                this._lastFpsTime = now;
+            }
 
-				// Scrollable
-				this.ctx.save();
-				this.ctx.translate(0, this.scrollOffset);
-				for (let comp of scrollableComponents) {
-					if (comp.visible) {
-						// ✅ Viewport culling : ne dessiner que ce qui est visible
-						const screenY = comp.y + this.scrollOffset;
-						const isInViewport = screenY + comp.height >= -100 && screenY <= this.height + 100;
+            if (this.showFps) {
+                this.ctx.save();
+                this.ctx.fillStyle = 'lime';
+                this.ctx.font = '16px monospace';
+                this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
+                this.ctx.restore();
+            }
 
-						if (isInViewport) {
-							comp.draw(this.ctx);
-						}
-					}
-				}
-				this.ctx.restore();
+            if (this.debbug) {
+                this.drawOverflowIndicators();
+            }
 
-				// Fixed
-				for (let comp of fixedComponents) {
-					if (comp.visible) {
-						comp.draw(this.ctx);
-					}
-				}
-			}
+            if (!this._firstRenderDone && this.components.length > 0) {
+                this._markFirstRender();
+            }
 
-			// 4️⃣ FPS
-			this._frames++;
-			const now = performance.now();
-			if (now - this._lastFpsTime >= 1000) {
-				this.fps = this._frames;
-				this._frames = 0;
-				this._lastFpsTime = now;
-			}
+            requestAnimationFrame(render);
+        };
 
-			if (this.showFps) {
-				this.ctx.save();
-				this.ctx.fillStyle = 'lime';
-				this.ctx.font = '16px monospace';
-				this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
-				this.ctx.restore();
-			}
+        render();
+    }
 
-			if (this.debbug) {
-				this.drawOverflowIndicators();
-			}
+    // 3. Ajoutez une méthode renderFull() optimisée
+    renderFull() {
+        // Sauvegarder le contexte
+        this.ctx.save();
 
-			// ✅ AJOUTER: Marquer le premier rendu
-			if (!this._firstRenderDone && this.components.length > 0) {
-				this._markFirstRender();
-			}
+        // Séparer les composants
+        const scrollableComponents = [];
+        const fixedComponents = [];
 
-			requestAnimationFrame(render);
-		};
+        for (let comp of this.components) {
+            if (this.isFixedComponent(comp)) {
+                fixedComponents.push(comp);
+            } else {
+                scrollableComponents.push(comp);
+            }
+        }
 
-		render();
-	}
+        // ✅ OPTIMISATION : Dessiner les composants scrollables avec translation
+        if (scrollableComponents.length > 0) {
+            this.ctx.save();
+            this.ctx.translate(0, this.scrollOffset);
+
+            for (let comp of scrollableComponents) {
+                if (comp.visible) {
+                    // Viewport culling
+                    const screenY = comp.y + this.scrollOffset;
+                    const isInViewport = screenY + comp.height >= -100 && screenY <= this.height + 100;
+
+                    if (isInViewport) {
+                        comp.draw(this.ctx);
+                    }
+                }
+            }
+
+            this.ctx.restore();
+        }
+
+        // Dessiner les composants fixes
+        for (let comp of fixedComponents) {
+            if (comp.visible) {
+                comp.draw(this.ctx);
+            }
+        }
+
+        // Restaurer le contexte
+        this.ctx.restore();
+    }
+
+    /**
+     * Fait défiler à une position spécifique
+     * @param {number} offset - Position cible
+     * @param {boolean} animated - Avec animation
+     */
+    scrollTo(offset, animated = true) {
+        if (animated) {
+            const startOffset = this.scrollOffset;
+            const delta = offset - startOffset;
+            const duration = 300;
+            const startTime = performance.now();
+
+            const animate = (currentTime) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const ease = this.easeOutCubic(progress);
+                const currentOffset = startOffset + delta * ease;
+
+                this.scrollWorker.postMessage({
+                    type: 'SET_SCROLL_OFFSET',
+                    payload: {
+                        scrollOffset: currentOffset
+                    }
+                });
+
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            };
+
+            requestAnimationFrame(animate);
+        } else {
+            this.scrollWorker.postMessage({
+                type: 'SET_SCROLL_OFFSET',
+                payload: {
+                    scrollOffset: offset
+                }
+            });
+        }
+    }
+
+    /**
+     * Fonction d'easing
+     */
+    easeOutCubic(t) {
+        return 1 - Math.pow(1 - t, 3);
+    }
+
+    /**
+     * Nettoie les ressources
+     */
+    destroy() {
+        if (this.scrollWorker) {
+            this.scrollWorker.terminate();
+        }
+        if (this.worker) {
+            this.worker.terminate();
+        }
+        if (this.logicWorker) {
+            this.logicWorker.terminate();
+        }
+
+        // Nettoyer les écouteurs d'événements
+        this.canvas.removeEventListener('touchstart', this.handleTouchStart);
+        this.canvas.removeEventListener('touchmove', this.handleTouchMove);
+        this.canvas.removeEventListener('touchend', this.handleTouchEnd);
+        this.canvas.removeEventListener('mousedown', this.handleMouseDown);
+        this.canvas.removeEventListener('mousemove', this.handleMouseMove);
+        this.canvas.removeEventListener('mouseup', this.handleMouseUp);
+        window.removeEventListener('resize', this.handleResize);
+    }
 
     // ✅ AJOUTER: Afficher les métriques à l'écran
     displayMetrics() {
