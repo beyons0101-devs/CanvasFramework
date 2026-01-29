@@ -28,10 +28,10 @@ class WebGLCanvasAdapter {
     this.charAtlas = new Map(); // Cache par caractère (atlas)
     this.maxTextCacheSize = options.maxCacheSize || 400;
 
-    // Text Atlas (grand canvas 2048x2048 avec tous les caractères)
+    // Text Atlas (grand canvas 4096x4096 avec tous les caractères)
     this.atlasCanvas = document.createElement('canvas');
-    this.atlasCanvas.width = 2048;
-    this.atlasCanvas.height = 2048;
+    this.atlasCanvas.width = 4096;
+    this.atlasCanvas.height = 4096;
     this.atlasCtx = this.atlasCanvas.getContext('2d', { alpha: true });
     this.atlasX = 0;
     this.atlasY = 0;
@@ -547,3 +547,4 @@ class WebGLCanvasAdapter {
 }
 
 export default WebGLCanvasAdapter;
+
