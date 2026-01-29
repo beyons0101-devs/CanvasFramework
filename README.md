@@ -54,6 +54,7 @@ Canvas UI Engine takes a **radically different approach**:
 bash
 - npm install canvas-ui-engine
 - npm install -D vite
+- npm create pixi.js@latest
 
 ---
 # add in package.json
