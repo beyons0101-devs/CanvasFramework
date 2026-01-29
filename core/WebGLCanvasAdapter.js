@@ -1,6 +1,6 @@
 import * as PIXI from 'pixi.js';
 /**
- * Adaptateur WebGL pour le rendu Canvas 2D-like
+ * Adaptateur WebGL pour le rendu Text de Canvas 2D
  * @class WebGLCanvasAdapter
  */
 class WebGLCanvasAdapter {
@@ -231,5 +231,6 @@ class WebGLCanvasAdapter {
 }
 
 export default WebGLCanvasAdapter;
+
 
 
