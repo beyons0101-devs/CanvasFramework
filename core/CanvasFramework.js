@@ -158,12 +158,39 @@ class CanvasFramework {
 
         // ✅ OPTIMISATION OPTION 5: Contexte Canvas optimisé
         this.canvas = document.getElementById(canvasId);
-        this.ctx = this.canvas.getContext('2d', {
+        /*this.ctx = this.canvas.getContext('2d', {
             alpha: false, // ✅ Gain de 30% de performance
             desynchronized: true, // ✅ Bypass la queue du navigateur
             willReadFrequently: false
-        });
-
+        });*/
+		// NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
+        this.useWebGL = options.useWebGL ?? false;   // utilise la valeur si fournie, sinon false
+    
+		// Initialiser le contexte approprié
+		if (this.useWebGL) {
+		  try {
+		    this.ctx = new WebGLCanvasAdapter(this.canvas, {
+		      dpr: this.dpr,
+		      alpha: false
+		    });
+		  } catch (err) {
+		    console.warn("Échec de l’initialisation WebGLCanvasAdapter → fallback Canvas 2D", err);
+		    this.ctx = this.canvas.getContext('2d', {
+		      alpha: false,
+		      desynchronized: true,
+		      willReadFrequently: false
+		    });
+		    this.useWebGL = false;
+		  }
+		} else {
+		  this.ctx = this.canvas.getContext('2d', {
+		    alpha: false,
+		    desynchronized: true,
+		    willReadFrequently: false
+		  });
+		}
+		//this.ctx.scale(this.dpr, this.dpr);
+		
         this.backgroundColor = options.backgroundColor || '#f5f5f5'; // Blanc par défaut
 
         this.width = window.innerWidth;
@@ -258,34 +285,6 @@ class CanvasFramework {
 
         //this.applyThemeFromSystem();
         this.state = {};
-        
-		// NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
-        this.useWebGL = options.useWebGL ?? false;   // utilise la valeur si fournie, sinon false
-    
-		// Initialiser le contexte approprié
-		if (this.useWebGL) {
-		  try {
-		    this.ctx = new WebGLCanvasAdapter(this.canvas, {
-		      dpr: this.dpr,
-		      alpha: false
-		    });
-		  } catch (err) {
-		    console.warn("Échec de l’initialisation WebGLCanvasAdapter → fallback Canvas 2D", err);
-		    this.ctx = this.canvas.getContext('2d', {
-		      alpha: false,
-		      desynchronized: true,
-		      willReadFrequently: false
-		    });
-		    this.useWebGL = false;
-		  }
-		} else {
-		  this.ctx = this.canvas.getContext('2d', {
-		    alpha: false,
-		    desynchronized: true,
-		    willReadFrequently: false
-		  });
-		}
-		//this.ctx.scale(this.dpr, this.dpr);
 
         // Calcule FPS
         this.fps = 0;
@@ -1573,14 +1572,6 @@ class CanvasFramework {
         this.canvas.style.backgroundColor = this.backgroundColor;
         // Échelle uniquement pour Canvas 2D
         this.ctx.scale(this.dpr, this.dpr);
-        /*if (!this.useWebGL) {
-            this.ctx.scale(this.dpr, this.dpr);
-        } else {
-            // WebGL gère le DPR automatiquement via la matrice de projection
-            this.ctx.updateProjectionMatrix();
-        }*/
-
-
     }
 
     setupEventListeners() {
@@ -2817,5 +2808,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
