@@ -15,7 +15,7 @@ class WebGLCanvasAdapter {
       willReadFrequently: false
     });
 
-    this.ctx.scale(this.dpr, this.dpr);
+    //this.ctx.scale(this.dpr, this.dpr);
 
     // PixiJS uniquement pour le texte (canvas caché)
     this._initPixiTextRenderer();
@@ -231,4 +231,5 @@ class WebGLCanvasAdapter {
 }
 
 export default WebGLCanvasAdapter;
+
 
