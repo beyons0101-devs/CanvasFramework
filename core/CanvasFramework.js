@@ -408,6 +408,52 @@ class CanvasFramework {
         }
     }
 
+	/**
+	 * Crée un élément DOM temporaire, l'ajoute au body, exécute une callback, puis le supprime
+	 * @param {string} tagName - 'input', 'select', 'textarea', etc.
+	 * @param {Object} props - propriétés (type, value, accept, etc.)
+	 * @param {Function} onResult - callback quand l'élément change ou blur
+	 * @param {Object} position - {left, top, width, height} en pixels (optionnel)
+	 */
+	createTemporaryDomElement(tagName, props = {}, onResult, position = null) {
+	    const el = document.createElement(tagName);
+	    
+	    Object.assign(el, props);
+	    el.style.position = 'absolute';
+	    el.style.opacity = '0';
+	    el.style.zIndex = '9999';
+	    
+	    if (position) {
+	        Object.assign(el.style, {
+	            left: `${position.left}px`,
+	            top: `${position.top}px`,
+	            width: `${position.width}px`,
+	            height: `${position.height}px`
+	        });
+	    }
+	    
+	    document.body.appendChild(el);
+	    
+	    const cleanup = () => {
+	        el.remove();
+	        document.removeEventListener('focusout', cleanup);
+	    };
+	    
+	    el.addEventListener('change', (e) => {
+	        onResult(e.target);
+	        cleanup();
+	    });
+	    
+	    el.addEventListener('blur', cleanup);
+	    
+	    // Focus auto pour input/select
+	    if (tagName === 'input' || tagName === 'select' || tagName === 'textarea') {
+	        el.focus();
+	    }
+	    
+	    return el;
+	}
+
     /**
      * Crée le Worker pour le calcul du scroll
      */
@@ -2808,6 +2854,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
 
 
 
