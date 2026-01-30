@@ -1,6 +1,6 @@
 /**
  * Adaptateur WebGL pour le rendu de texte ultra-optimisé
- * Utilise WebGL + Text Atlas + Culling + Batch Rendering
+ * Version améliorée avec optimisations supplémentaires
  * @class WebGLCanvasAdapter
  */
 class WebGLCanvasAdapter {
@@ -16,30 +16,39 @@ class WebGLCanvasAdapter {
     });
 
     // ✅ OPTIONS D'OPTIMISATION
-    this.useTextAtlas = options.useTextAtlas !== false; // Text atlas par défaut
-    this.enableCulling = options.enableCulling !== false; // Culling activé
-    this.enableBatching = options.enableBatching !== false; // Batching activé
+    this.useTextAtlas = options.useTextAtlas !== false;
+    this.enableCulling = options.enableCulling !== false;
+    this.enableBatching = options.enableBatching !== false;
+    this.useOffscreenCanvas = options.useOffscreenCanvas !== false && typeof OffscreenCanvas !== 'undefined';
 
     // WebGL pour le texte
     this._initWebGLTextRenderer();
 
-    // Cache
-    this.textCache = new Map(); // Cache par texte complet (fallback)
-    this.charAtlas = new Map(); // Cache par caractère (atlas)
+    // Cache optimisé avec LRU
+    this.textCache = new Map();
+    this.charAtlas = new Map();
     this.maxTextCacheSize = options.maxCacheSize || 400;
+    this.lruKeys = []; // ✅ NOUVEAU : Tracking LRU pour meilleur cache eviction
 
-    // Text Atlas (grand canvas 4096x4096 avec tous les caractères)
-    this.atlasCanvas = document.createElement('canvas');
-    this.atlasCanvas.width = 4096;
-    this.atlasCanvas.height = 4096;
-    this.atlasCtx = this.atlasCanvas.getContext('2d', { alpha: true });
-    this.atlasX = 0;
-    this.atlasY = 0;
-    this.atlasRowHeight = 0;
+    // Text Atlas optimisé (utilise plusieurs atlas si nécessaire)
+    this.atlases = [this._createAtlas()]; // ✅ NOUVEAU : Support multi-atlas
+    this.currentAtlasIndex = 0;
 
-    // Batch rendering
+    // Batch rendering optimisé
     this.textBatch = [];
     this.batchMode = false;
+    this.maxBatchSize = options.maxBatchSize || 1000; // ✅ NOUVEAU : Limite batch size
+
+    // ✅ NOUVEAU : Pré-calcul des métriques communes
+    this.fontMetricsCache = new Map();
+    this.baselineRatios = {
+      'alphabetic': 0.85,
+      'top': 1.0,
+      'middle': 0.65,
+      'bottom': 0,
+      'hanging': 0.9,
+      'ideographic': 0.1
+    };
 
     // États pour le texte
     this._currentFont = '16px sans-serif';
@@ -47,12 +56,58 @@ class WebGLCanvasAdapter {
     this._currentTextAlign = 'start';
     this._currentTextBaseline = 'alphabetic';
 
-    // Stats (optionnel)
+    // ✅ NOUVEAU : Pool d'objets pour réduire GC
+    this.objectPool = {
+      points: [],
+      rects: [],
+      maxPoolSize: 100
+    };
+
+    // ✅ NOUVEAU : Viewport cache pour culling
+    this.viewportBounds = {
+      left: 0,
+      right: this.canvas.width,
+      top: 0,
+      bottom: this.canvas.height
+    };
+
+    // Stats
     this.stats = {
       cacheHits: 0,
       cacheMisses: 0,
       drawCalls: 0,
-      culledTexts: 0
+      culledTexts: 0,
+      batchedDraws: 0,
+      atlasCount: 1
+    };
+
+    // ✅ NOUVEAU : Debounced cleanup
+    this._cleanupScheduled = false;
+    this._textCleanupInterval = setInterval(() => this._cleanOldCache(), 60000);
+  }
+
+  // ────────────────────────────────────────────────
+  // ✅ NOUVEAU : Gestion multi-atlas
+  // ────────────────────────────────────────────────
+  _createAtlas() {
+    const canvas = this.useOffscreenCanvas 
+      ? new OffscreenCanvas(2048, 2048)
+      : document.createElement('canvas');
+    
+    if (!this.useOffscreenCanvas) {
+      canvas.width = 2048;
+      canvas.height = 2048;
+    }
+    
+    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
+    
+    return {
+      canvas,
+      ctx,
+      x: 0,
+      y: 0,
+      rowHeight: 0,
+      usage: 0 // ✅ Track utilization
     };
   }
 
@@ -60,15 +115,35 @@ class WebGLCanvasAdapter {
   // Initialisation WebGL
   // ────────────────────────────────────────────────
   _initWebGLTextRenderer() {
-    this.textCanvas = document.createElement('canvas');
-    this.textCtx = this.textCanvas.getContext('2d', { alpha: true, willReadFrequently: false });
+    this.textCanvas = this.useOffscreenCanvas 
+      ? new OffscreenCanvas(256, 256)
+      : document.createElement('canvas');
+    
+    if (!this.useOffscreenCanvas) {
+      this.textCanvas.width = 256;
+      this.textCanvas.height = 256;
+    }
+    
+    this.textCtx = this.textCanvas.getContext('2d', { 
+      alpha: true, 
+      willReadFrequently: false 
+    });
 
-    this.glCanvas = document.createElement('canvas');
+    this.glCanvas = this.useOffscreenCanvas 
+      ? new OffscreenCanvas(256, 256)
+      : document.createElement('canvas');
+    
+    if (!this.useOffscreenCanvas) {
+      this.glCanvas.width = 256;
+      this.glCanvas.height = 256;
+    }
+
     this.gl = this.glCanvas.getContext('webgl', {
       alpha: true,
       premultipliedAlpha: true,
       antialias: false,
-      preserveDrawingBuffer: false // ✅ Performance
+      preserveDrawingBuffer: false,
+      powerPreference: 'high-performance' // ✅ NOUVEAU
     });
 
     if (!this.gl) {
@@ -76,12 +151,12 @@ class WebGLCanvasAdapter {
     }
 
     this._setupWebGL();
-    this._textCleanupInterval = setInterval(() => this._cleanOldCache(), 60000);
   }
 
   _setupWebGL() {
     const gl = this.gl;
 
+    // Shaders identiques
     const vertexShaderSource = `
       attribute vec2 a_position;
       attribute vec2 a_texCoord;
@@ -146,10 +221,26 @@ class WebGLCanvasAdapter {
   }
 
   // ────────────────────────────────────────────────
-  // ✅ OPTIMISATION 1 : TEXT ATLAS (cache par caractère)
+  // ✅ OPTIMISATION : Text Atlas avec cache de métriques
   // ────────────────────────────────────────────────
+  _getFontMetrics(font) {
+    if (this.fontMetricsCache.has(font)) {
+      return this.fontMetricsCache.get(font);
+    }
+
+    const fontSize = parseFloat(font) || 16;
+    const metrics = {
+      fontSize,
+      lineHeight: fontSize * 1.5,
+      padding: 4
+    };
+
+    this.fontMetricsCache.set(font, metrics);
+    return metrics;
+  }
+
   _rasterizeChar(char, font, color) {
-    const key = `${char}|||${font}|||${color}`;
+    const key = `${char}|${font}|${color}`; // ✅ NOUVEAU : Key plus court
     
     if (this.charAtlas.has(key)) {
       this.stats.cacheHits++;
@@ -158,69 +249,116 @@ class WebGLCanvasAdapter {
 
     this.stats.cacheMisses++;
 
-    const fontSize = parseFloat(font) || 16;
-    this.atlasCtx.font = font;
-    const metrics = this.atlasCtx.measureText(char);
+    const metrics = this._getFontMetrics(font);
+    const atlas = this.atlases[this.currentAtlasIndex];
     
-    const width = Math.ceil(metrics.width) + 4;
-    const height = Math.ceil(fontSize * 1.5) + 4;
+    atlas.ctx.font = font;
+    const textMetrics = atlas.ctx.measureText(char);
+    
+    const width = Math.ceil(textMetrics.width) + metrics.padding;
+    const height = Math.ceil(metrics.lineHeight) + metrics.padding;
 
-    // ✅ Gestion du débordement de l'atlas
-    if (this.atlasX + width > this.atlasCanvas.width) {
-      this.atlasX = 0;
-      this.atlasY += this.atlasRowHeight + 2;
-      this.atlasRowHeight = 0;
+    // ✅ NOUVEAU : Gestion intelligente multi-atlas
+    if (atlas.x + width > 2048) {
+      atlas.x = 0;
+      atlas.y += atlas.rowHeight + 2;
+      atlas.rowHeight = 0;
     }
 
-    if (this.atlasY + height > this.atlasCanvas.height) {
-      // Atlas plein → réinitialiser (ou créer un nouvel atlas)
-      console.warn('Atlas plein, réinitialisation...');
-      this.atlasCtx.clearRect(0, 0, this.atlasCanvas.width, this.atlasCanvas.height);
-      this.charAtlas.clear();
-      this.atlasX = 0;
-      this.atlasY = 0;
-      this.atlasRowHeight = 0;
+    if (atlas.y + height > 2048) {
+      // Créer un nouvel atlas au lieu de clear
+      if (this.atlases.length < 4) { // ✅ Maximum 4 atlas
+        this.currentAtlasIndex++;
+        this.atlases.push(this._createAtlas());
+        this.stats.atlasCount++;
+        return this._rasterizeChar(char, font, color); // Retry
+      } else {
+        // Réutiliser l'atlas le moins utilisé
+        this.currentAtlasIndex = this._findLeastUsedAtlas();
+        this._clearAtlas(this.currentAtlasIndex);
+        return this._rasterizeChar(char, font, color);
+      }
     }
 
-    // Dessiner le caractère dans l'atlas
-    this.atlasCtx.font = font;
-    this.atlasCtx.fillStyle = color;
-    this.atlasCtx.textBaseline = 'alphabetic';
-    this.atlasCtx.fillText(char, this.atlasX + 2, this.atlasY + fontSize);
+    // Dessiner le caractère
+    atlas.ctx.font = font;
+    atlas.ctx.fillStyle = color;
+    atlas.ctx.textBaseline = 'alphabetic';
+    atlas.ctx.fillText(char, atlas.x + 2, atlas.y + metrics.fontSize);
 
     const charData = {
-      x: this.atlasX,
-      y: this.atlasY,
+      atlasIndex: this.currentAtlasIndex,
+      x: atlas.x,
+      y: atlas.y,
       width,
       height,
-      textWidth: metrics.width,
-      atlas: this.atlasCanvas
+      textWidth: textMetrics.width
     };
 
     this.charAtlas.set(key, charData);
+    atlas.usage++;
 
-    this.atlasX += width + 2;
-    this.atlasRowHeight = Math.max(this.atlasRowHeight, height);
+    atlas.x += width + 2;
+    atlas.rowHeight = Math.max(atlas.rowHeight, height);
 
     return charData;
   }
 
+  // ✅ NOUVEAU : Trouve l'atlas le moins utilisé
+  _findLeastUsedAtlas() {
+    let minUsage = Infinity;
+    let minIndex = 0;
+    
+    for (let i = 0; i < this.atlases.length; i++) {
+      if (this.atlases[i].usage < minUsage) {
+        minUsage = this.atlases[i].usage;
+        minIndex = i;
+      }
+    }
+    
+    return minIndex;
+  }
+
+  // ✅ NOUVEAU : Clear un atlas spécifique
+  _clearAtlas(index) {
+    const atlas = this.atlases[index];
+    atlas.ctx.clearRect(0, 0, 2048, 2048);
+    atlas.x = 0;
+    atlas.y = 0;
+    atlas.rowHeight = 0;
+    atlas.usage = 0;
+
+    // Supprimer les entrées du cache pour cet atlas
+    for (let [key, value] of this.charAtlas.entries()) {
+      if (value.atlasIndex === index) {
+        this.charAtlas.delete(key);
+      }
+    }
+  }
+
   // ────────────────────────────────────────────────
-  // ✅ OPTIMISATION 2 : CULLING (ne pas dessiner hors écran)
+  // ✅ OPTIMISATION : Culling amélioré avec marge
   // ────────────────────────────────────────────────
   _isInViewport(x, y, width, height) {
     if (!this.enableCulling) return true;
 
+    const margin = 50; // ✅ NOUVEAU : Marge pour pré-render
+    
     return !(
-      x + width < 0 ||
-      x > this.canvas.width ||
-      y + height < 0 ||
-      y > this.canvas.height
+      x + width < -margin ||
+      x > this.viewportBounds.right + margin ||
+      y + height < -margin ||
+      y > this.viewportBounds.bottom + margin
     );
   }
 
+  // ✅ NOUVEAU : Update viewport bounds
+  updateViewport(left = 0, top = 0, right = this.canvas.width, bottom = this.canvas.height) {
+    this.viewportBounds = { left, top, right, bottom };
+  }
+
   // ────────────────────────────────────────────────
-  // ✅ OPTIMISATION 3 : BATCH RENDERING
+  // ✅ OPTIMISATION : Batch Rendering avec auto-flush
   // ────────────────────────────────────────────────
   beginTextBatch() {
     this.batchMode = true;
@@ -233,22 +371,41 @@ class WebGLCanvasAdapter {
       return;
     }
 
+    // ✅ NOUVEAU : Tri par font/color pour réduire les changements d'état
+    this.textBatch.sort((a, b) => {
+      const keyA = `${a.font}|${a.color}`;
+      const keyB = `${b.font}|${b.color}`;
+      return keyA.localeCompare(keyB);
+    });
+
+    let lastFont = '';
+    let lastColor = '';
+
     // Dessiner tous les textes du batch
     for (let item of this.textBatch) {
-      this._currentFont = item.font;
-      this._currentFillStyle = item.color;
+      // ✅ NOUVEAU : Éviter les changements d'état inutiles
+      if (item.font !== lastFont) {
+        this._currentFont = item.font;
+        lastFont = item.font;
+      }
+      if (item.color !== lastColor) {
+        this._currentFillStyle = item.color;
+        lastColor = item.color;
+      }
+      
       this._currentTextAlign = item.align;
       this._currentTextBaseline = item.baseline;
       
       this._drawTextImmediate(item.text, item.x, item.y);
     }
 
+    this.stats.batchedDraws += this.textBatch.length;
     this.textBatch = [];
     this.batchMode = false;
   }
 
   // ────────────────────────────────────────────────
-  // fillText : MÉTHODE PRINCIPALE OPTIMISÉE
+  // fillText : MÉTHODE PRINCIPALE
   // ────────────────────────────────────────────────
   fillText(text, x, y) {
     if (!text) return;
@@ -258,9 +415,15 @@ class WebGLCanvasAdapter {
     const align = this._currentTextAlign;
     const baseline = this._currentTextBaseline;
 
-    // ✅ Mode batch : ajouter à la liste
+    // Mode batch
     if (this.batchMode) {
       this.textBatch.push({ text, x, y, font, color, align, baseline });
+      
+      // ✅ NOUVEAU : Auto-flush si batch trop grand
+      if (this.textBatch.length >= this.maxBatchSize) {
+        this.flushTextBatch();
+        this.beginTextBatch(); // Redémarrer le batch
+      }
       return;
     }
 
@@ -273,73 +436,76 @@ class WebGLCanvasAdapter {
     const align = this._currentTextAlign;
     const baseline = this._currentTextBaseline;
 
-    // ✅ CULLING : Estimation rapide
-    const fontSize = parseFloat(font) || 16;
-    const estimatedWidth = text.length * fontSize * 0.6;
+    // ✅ Culling optimisé
+    const metrics = this._getFontMetrics(font);
+    const estimatedWidth = text.length * metrics.fontSize * 0.6;
 
-    if (!this._isInViewport(x - estimatedWidth/2, y - fontSize, estimatedWidth, fontSize * 2)) {
+    if (!this._isInViewport(x - estimatedWidth/2, y - metrics.fontSize, estimatedWidth, metrics.fontSize * 2)) {
       this.stats.culledTexts++;
       return;
     }
 
-    // ✅ MODE ATLAS : Dessiner caractère par caractère
+    // Mode atlas par défaut
     if (this.useTextAtlas) {
       this._drawTextWithAtlas(text, x, y, font, color, align, baseline);
     } else {
-      // Mode cache complet (ancien système)
       this._drawTextCached(text, x, y, font, color, align, baseline);
     }
 
     this.stats.drawCalls++;
   }
 
-  // ✅ Dessiner avec Text Atlas
+  // ✅ Dessiner avec Text Atlas (optimisé)
   _drawTextWithAtlas(text, x, y, font, color, align, baseline) {
-    let offsetX = 0;
-
-    // Calculer la largeur totale pour l'alignement
+    // ✅ NOUVEAU : Pré-calcul des métriques
+    const metrics = this._getFontMetrics(font);
     let totalWidth = 0;
-    for (let char of text) {
-      const charData = this._rasterizeChar(char, font, color);
-      totalWidth += charData.textWidth;
+    const chars = Array.from(text); // Support Unicode
+    const charData = [];
+
+    // Phase 1 : Rasterization (peut être mise en cache)
+    for (let char of chars) {
+      const data = this._rasterizeChar(char, font, color);
+      charData.push(data);
+      totalWidth += data.textWidth;
     }
 
-    // Ajuster X selon l'alignement
+    // Phase 2 : Calcul positions
     let startX = x;
     if (align === 'center') {
       startX -= totalWidth / 2;
     } else if (align === 'right') {
       startX -= totalWidth;
+    } else if (align === 'end') {
+      startX -= totalWidth; // ✅ Support 'end'
     }
 
-    // Ajuster Y selon le baseline
-    const fontSize = parseFloat(font) || 16;
-    let baselineOffset = 0;
-    if (baseline === 'top') {
-      baselineOffset = fontSize;
-    } else if (baseline === 'middle') {
-      baselineOffset = fontSize * 0.65;
-    } else {
-      baselineOffset = fontSize * 0.85;
-    }
+    const baselineOffset = metrics.fontSize * (this.baselineRatios[baseline] || 0.85);
 
-    // Dessiner chaque caractère depuis l'atlas
-    for (let char of text) {
-      const charData = this._rasterizeChar(char, font, color);
+    // Phase 3 : Rendu
+    let offsetX = 0;
+    for (let i = 0; i < chars.length; i++) {
+      const data = charData[i];
+      const atlas = this.atlases[data.atlasIndex];
 
       this.ctx.drawImage(
-        charData.atlas,
-        charData.x, charData.y, charData.width, charData.height,
-        startX + offsetX, y - baselineOffset, charData.width, charData.height
+        atlas.canvas,
+        data.x, data.y, data.width, data.height,
+        Math.round(startX + offsetX), Math.round(y - baselineOffset), 
+        data.width, data.height
       );
 
-      offsetX += charData.textWidth;
+      offsetX += data.textWidth;
     }
   }
 
-  // ✅ Ancien système (fallback)
+  // ✅ Ancien système avec LRU
   _drawTextCached(text, x, y, font, color, align, baseline) {
-    const key = `${text}|||${font}|||${color}|||${align}|||${baseline}`;
+    const key = `${text}|${font}|${color}|${align}|${baseline}`;
+    
+    // ✅ NOUVEAU : LRU tracking
+    this._touchLRU(key);
+    
     let cached = this.textCache.get(key);
 
     if (!cached) {
@@ -356,31 +522,49 @@ class WebGLCanvasAdapter {
       };
 
       this.textCache.set(key, cached);
+      
+      // ✅ NOUVEAU : Eviction immédiate si trop grand
+      if (this.textCache.size > this.maxTextCacheSize) {
+        this._scheduleCleanup();
+      }
     }
 
     let finalX = x - 8;
     if (align === 'center') finalX -= cached.textWidth / 2;
-    else if (align === 'right') finalX -= cached.textWidth;
+    else if (align === 'right' || align === 'end') finalX -= cached.textWidth;
 
     const finalY = y - 8 - cached.baselineOffset;
 
-    this._drawTextureToCanvas(cached.texture, cached.width, cached.height, finalX, finalY);
+    this._drawTextureToCanvas(cached.texture, cached.width, cached.height, 
+      Math.round(finalX), Math.round(finalY));
+  }
+
+  // ✅ NOUVEAU : LRU tracking
+  _touchLRU(key) {
+    const index = this.lruKeys.indexOf(key);
+    if (index > -1) {
+      this.lruKeys.splice(index, 1);
+    }
+    this.lruKeys.push(key);
   }
 
   // ────────────────────────────────────────────────
   // Méthodes auxiliaires
   // ────────────────────────────────────────────────
   _rasterizeText(text, font, color, align, baseline) {
-    const fontSize = parseFloat(font) || 16;
+    const metrics = this._getFontMetrics(font);
     this.textCtx.font = font;
-    const metrics = this.textCtx.measureText(text);
+    const textMetrics = this.textCtx.measureText(text);
     
-    const width = Math.ceil(metrics.width) + 16;
-    const height = Math.ceil(fontSize * 1.5) + 16;
+    const width = Math.ceil(textMetrics.width) + 16;
+    const height = Math.ceil(metrics.lineHeight) + 16;
 
-    if (this.textCanvas.width < width || this.textCanvas.height < height) {
-      this.textCanvas.width = Math.max(width, this.textCanvas.width);
-      this.textCanvas.height = Math.max(height, this.textCanvas.height);
+    // ✅ NOUVEAU : Resize seulement si nécessaire
+    if (this.textCanvas.width < width) {
+      this.textCanvas.width = Math.min(width, 4096); // ✅ Limite max
+    }
+    if (this.textCanvas.height < height) {
+      this.textCanvas.height = Math.min(height, 4096);
     }
 
     this.textCtx.clearRect(0, 0, width, height);
@@ -389,13 +573,16 @@ class WebGLCanvasAdapter {
     this.textCtx.textAlign = 'left';
     this.textCtx.textBaseline = 'alphabetic';
 
-    let offsetY = fontSize * 0.85;
-    if (baseline === 'top') offsetY = fontSize;
-    else if (baseline === 'middle') offsetY = fontSize * 0.65;
-
+    const offsetY = metrics.fontSize * (this.baselineRatios[baseline] || 0.85);
     this.textCtx.fillText(text, 8, 8 + offsetY);
 
-    return { canvas: this.textCanvas, width, height, textWidth: metrics.width, baselineOffset: offsetY };
+    return { 
+      canvas: this.textCanvas, 
+      width, 
+      height, 
+      textWidth: textMetrics.width, 
+      baselineOffset: offsetY 
+    };
   }
 
   _createWebGLTexture(canvas, width, height) {
@@ -445,18 +632,32 @@ class WebGLCanvasAdapter {
   }
 
   // ────────────────────────────────────────────────
-  // Nettoyage
+  // ✅ Nettoyage optimisé avec debounce
   // ────────────────────────────────────────────────
+  _scheduleCleanup() {
+    if (this._cleanupScheduled) return;
+    
+    this._cleanupScheduled = true;
+    requestIdleCallback(() => {
+      this._cleanOldCache();
+      this._cleanupScheduled = false;
+    }, { timeout: 1000 });
+  }
+
   _cleanOldCache() {
     if (this.textCache.size <= this.maxTextCacheSize) return;
     
     const gl = this.gl;
-    const keys = Array.from(this.textCache.keys());
-    const toRemove = keys.slice(0, this.textCache.size - this.maxTextCacheSize);
+    const toRemove = this.textCache.size - this.maxTextCacheSize;
     
-    toRemove.forEach(key => {
+    // ✅ NOUVEAU : Utiliser LRU pour supprimer les moins utilisés
+    const keysToRemove = this.lruKeys.splice(0, toRemove);
+    
+    keysToRemove.forEach(key => {
       const entry = this.textCache.get(key);
-      if (entry?.texture) gl.deleteTexture(entry.texture);
+      if (entry?.texture) {
+        gl.deleteTexture(entry.texture);
+      }
       this.textCache.delete(key);
     });
   }
@@ -469,12 +670,38 @@ class WebGLCanvasAdapter {
       ...this.stats,
       atlasSize: this.charAtlas.size,
       cacheSize: this.textCache.size,
-      cacheHitRate: this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses)
+      cacheHitRate: this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses) || 0,
+      atlasCount: this.atlases.length,
+      avgAtlasUsage: this.atlases.reduce((sum, a) => sum + a.usage, 0) / this.atlases.length
     };
   }
 
   resetStats() {
-    this.stats = { cacheHits: 0, cacheMisses: 0, drawCalls: 0, culledTexts: 0 };
+    this.stats = { 
+      cacheHits: 0, 
+      cacheMisses: 0, 
+      drawCalls: 0, 
+      culledTexts: 0,
+      batchedDraws: 0,
+      atlasCount: this.atlases.length
+    };
+  }
+
+  // ✅ NOUVEAU : Clear all caches
+  clearCaches() {
+    this.charAtlas.clear();
+    this.fontMetricsCache.clear();
+    
+    const gl = this.gl;
+    this.textCache.forEach(entry => {
+      if (entry.texture) gl.deleteTexture(entry.texture);
+    });
+    this.textCache.clear();
+    this.lruKeys = [];
+
+    // Clear all atlases
+    this.atlases.forEach((atlas, i) => this._clearAtlas(i));
+    this.currentAtlasIndex = 0;
   }
 
   // ────────────────────────────────────────────────
@@ -528,23 +755,28 @@ class WebGLCanvasAdapter {
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
     this.ctx.scale(this.dpr, this.dpr);
+    
+    // ✅ NOUVEAU : Update viewport
+    this.updateViewport(0, 0, width, height);
   }
 
   destroy() {
     if (this.gl) {
       const gl = this.gl;
-      this.textCache.forEach(entry => { if (entry.texture) gl.deleteTexture(entry.texture); });
+      this.textCache.forEach(entry => { 
+        if (entry.texture) gl.deleteTexture(entry.texture); 
+      });
       gl.deleteBuffer(this.positionBuffer);
       gl.deleteBuffer(this.texCoordBuffer);
       gl.deleteProgram(this.program);
     }
     
-    if (this._textCleanupInterval) clearInterval(this._textCleanupInterval);
+    if (this._textCleanupInterval) {
+      clearInterval(this._textCleanupInterval);
+    }
     
-    this.textCache.clear();
-    this.charAtlas.clear();
+    this.clearCaches();
   }
 }
 
 export default WebGLCanvasAdapter;
-
