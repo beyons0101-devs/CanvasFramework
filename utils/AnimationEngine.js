@@ -10,6 +10,249 @@ class AnimationEngine {
     this.animations = new Map();
     this.isRunning = false;
     this.animationFrameId = null;
+    
+    // Batching
+    this.batchQueue = [];
+    this.batchScheduled = false;
+    
+    // Worker pour les calculs d'animation
+    this.worker = null;
+    this.workerEnabled = true;
+    this.initWorker();
+    
+    // OffscreenCanvas cache
+    this.offscreenCache = new Map();
+  }
+
+  /**
+   * Initialise le Web Worker pour les animations
+   * @private
+   */
+  initWorker() {
+    if (!window.Worker) {
+      this.workerEnabled = false;
+      console.warn('Web Workers non supportés, fallback sur le thread principal');
+      return;
+    }
+
+    // Créer le worker inline
+    const workerCode = `
+      // Fonctions d'easing dans le Worker
+      const easings = {
+        linear: t => t,
+        easeInQuad: t => t * t,
+        easeOutQuad: t => t * (2 - t),
+        easeInOutQuad: t => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
+        easeInCubic: t => t * t * t,
+        easeOutCubic: t => (--t) * t * t + 1,
+        easeInOutCubic: t => t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1,
+        easeInQuart: t => t * t * t * t,
+        easeOutQuart: t => 1 - (--t) * t * t * t,
+        easeInOutQuart: t => t < 0.5 ? 8 * t * t * t * t : 1 - 8 * (--t) * t * t * t,
+        easeInElastic: t => {
+          const c4 = (2 * Math.PI) / 3;
+          return t === 0 ? 0 : t === 1 ? 1 : -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4);
+        },
+        easeOutElastic: t => {
+          const c4 = (2 * Math.PI) / 3;
+          return t === 0 ? 0 : t === 1 ? 1 : Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1;
+        },
+        easeOutBounce: t => {
+          const n1 = 7.5625;
+          const d1 = 2.75;
+          if (t < 1 / d1) return n1 * t * t;
+          else if (t < 2 / d1) return n1 * (t -= 1.5 / d1) * t + 0.75;
+          else if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375;
+          else return n1 * (t -= 2.625 / d1) * t + 0.984375;
+        }
+      };
+
+      // Calculer les valeurs d'animation
+      self.onmessage = function(e) {
+        const { type, data } = e.data;
+
+        if (type === 'CALCULATE_BATCH') {
+          const { animations, currentTime } = data;
+          const results = [];
+
+          for (let anim of animations) {
+            // Gérer le délai
+            if (anim.isDelaying) {
+              if (!anim.delayStartTime) {
+                anim.delayStartTime = currentTime;
+              }
+              
+              if (currentTime - anim.delayStartTime >= anim.delay) {
+                anim.isDelaying = false;
+                anim.startTime = currentTime;
+              } else {
+                results.push({ id: anim.id, status: 'delaying', animation: anim });
+                continue;
+              }
+            }
+
+            // Initialiser le temps de départ
+            if (!anim.startTime) {
+              anim.startTime = currentTime;
+            }
+
+            // Calculer la progression
+            const elapsed = currentTime - anim.startTime;
+            let progress = Math.min(elapsed / anim.duration, 1);
+
+            // Appliquer l'easing
+            const easingFunc = easings[anim.easing] || easings.linear;
+            const easedProgress = easingFunc(progress);
+
+            // Inverser si yoyo
+            const actualProgress = anim.isReversed ? 1 - easedProgress : easedProgress;
+
+            // Calculer les nouvelles valeurs
+            const values = {};
+            for (let prop in anim.to) {
+              const from = anim.from[prop];
+              const to = anim.to[prop];
+              values[prop] = from + (to - from) * actualProgress;
+            }
+
+            // Déterminer le statut
+            let status = 'running';
+            let newState = { ...anim };
+
+            if (progress >= 1) {
+              if (anim.yoyo && !anim.isReversed) {
+                status = 'yoyo';
+                newState.isReversed = true;
+                newState.startTime = currentTime;
+              } else if (anim.loop) {
+                status = 'loop';
+                newState.startTime = currentTime;
+                newState.isReversed = false;
+              } else {
+                status = 'complete';
+              }
+            }
+
+            results.push({
+              id: anim.id,
+              status,
+              values,
+              actualProgress,
+              animation: newState
+            });
+          }
+
+          self.postMessage({ type: 'BATCH_RESULT', results });
+        }
+      };
+    `;
+
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    
+    try {
+      this.worker = new Worker(workerUrl);
+      
+      this.worker.onmessage = (e) => {
+        if (e.data.type === 'BATCH_RESULT') {
+          this.applyBatchResults(e.data.results);
+        }
+      };
+
+      this.worker.onerror = (error) => {
+        console.error('Erreur Worker:', error);
+        this.workerEnabled = false;
+      };
+    } catch (error) {
+      console.error('Impossible de créer le Worker:', error);
+      this.workerEnabled = false;
+    }
+  }
+
+  /**
+   * Applique les résultats calculés par le Worker
+   * @private
+   */
+  applyBatchResults(results) {
+    const toDelete = [];
+
+    for (let result of results) {
+      const anim = this.animations.get(result.id);
+      if (!anim) continue;
+
+      if (result.status === 'delaying') {
+        // Mettre à jour l'état de délai
+        Object.assign(anim, result.animation);
+        continue;
+      }
+
+      // Mettre à jour les propriétés du composant
+      if (result.values) {
+        for (let prop in result.values) {
+          anim.component[prop] = result.values[prop];
+        }
+      }
+
+      // Callback onUpdate
+      if (anim.onUpdate) {
+        anim.onUpdate(result.actualProgress);
+      }
+
+      // Gérer les états
+      if (result.status === 'yoyo' || result.status === 'loop') {
+        Object.assign(anim, result.animation);
+      } else if (result.status === 'complete') {
+        if (anim.onComplete) {
+          anim.onComplete();
+        }
+        toDelete.push(result.id);
+      }
+    }
+
+    // Nettoyer les animations terminées
+    toDelete.forEach(id => this.stop(id));
+  }
+
+  /**
+   * Crée un OffscreenCanvas pour pré-rendre un composant
+   * @param {string} cacheKey - Clé de cache
+   * @param {number} width - Largeur
+   * @param {number} height - Hauteur
+   * @param {Function} renderFn - Fonction de rendu
+   */
+  createOffscreenCache(cacheKey, width, height, renderFn) {
+    if (!window.OffscreenCanvas) {
+      console.warn('OffscreenCanvas non supporté');
+      return null;
+    }
+
+    const offscreen = new OffscreenCanvas(width, height);
+    const ctx = offscreen.getContext('2d');
+    
+    renderFn(ctx);
+    
+    this.offscreenCache.set(cacheKey, offscreen);
+    return offscreen;
+  }
+
+  /**
+   * Récupère un OffscreenCanvas du cache
+   * @param {string} cacheKey - Clé de cache
+   */
+  getOffscreenCache(cacheKey) {
+    return this.offscreenCache.get(cacheKey);
+  }
+
+  /**
+   * Nettoie le cache OffscreenCanvas
+   * @param {string} cacheKey - Clé de cache (optionnel)
+   */
+  clearOffscreenCache(cacheKey = null) {
+    if (cacheKey) {
+      this.offscreenCache.delete(cacheKey);
+    } else {
+      this.offscreenCache.clear();
+    }
   }
 
   /**
@@ -283,11 +526,69 @@ class AnimationEngine {
   }
 
   /**
-   * Met à jour toutes les animations
+   * Met à jour toutes les animations (avec Worker et batching)
    * @private
    */
   update() {
     const currentTime = performance.now();
+
+    if (this.workerEnabled && this.worker) {
+      // Utiliser le Worker pour les calculs
+      this.updateWithWorker(currentTime);
+    } else {
+      // Fallback sur le thread principal
+      this.updateOnMainThread(currentTime);
+    }
+
+    // Continuer l'animation
+    if (this.animations.size > 0) {
+      this.animationFrameId = requestAnimationFrame(() => this.update());
+    } else {
+      this.isRunning = false;
+    }
+  }
+
+  /**
+   * Met à jour avec le Worker (batching automatique)
+   * @private
+   */
+  updateWithWorker(currentTime) {
+    const animationsArray = [];
+    
+    for (let [id, anim] of this.animations) {
+      // Préparer les données pour le Worker (sans les callbacks et le composant)
+      animationsArray.push({
+        id: anim.id,
+        from: anim.from,
+        to: anim.to,
+        duration: anim.duration,
+        easing: anim.easing,
+        delay: anim.delay,
+        loop: anim.loop,
+        yoyo: anim.yoyo,
+        startTime: anim.startTime,
+        delayStartTime: anim.delayStartTime,
+        isDelaying: anim.isDelaying,
+        isReversed: anim.isReversed
+      });
+    }
+
+    if (animationsArray.length > 0) {
+      this.worker.postMessage({
+        type: 'CALCULATE_BATCH',
+        data: {
+          animations: animationsArray,
+          currentTime: currentTime
+        }
+      });
+    }
+  }
+
+  /**
+   * Met à jour sur le thread principal (fallback)
+   * @private
+   */
+  updateOnMainThread(currentTime) {
     const toDelete = [];
 
     for (let [id, anim] of this.animations) {
@@ -354,13 +655,6 @@ class AnimationEngine {
 
     // Nettoyer les animations terminées
     toDelete.forEach(id => this.stop(id));
-
-    // Continuer l'animation
-    if (this.animations.size > 0) {
-      this.animationFrameId = requestAnimationFrame(() => this.update());
-    } else {
-      this.isRunning = false;
-    }
   }
 
   /**
@@ -421,6 +715,18 @@ class AnimationEngine {
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
+    }
+    this.clearOffscreenCache();
+  }
+
+  /**
+   * Nettoie le Worker
+   */
+  destroy() {
+    this.clear();
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
     }
   }
 }
