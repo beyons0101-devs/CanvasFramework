@@ -247,7 +247,7 @@ class PullToRefresh extends Component {
     ctx.save();
     
     const progress = Math.min(1, this.pullDistance / this.refreshThreshold);
-    const displayHeight = Math.min(this.pullDistance, 100);
+    const displayHeight = Math.min(this.pullDistance, 230);
     
     // Background
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
