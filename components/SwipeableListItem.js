@@ -60,7 +60,6 @@ class SwipeableListItem extends Component {
     }
 
     const canvas = this.framework.canvas;
-    console.log('📡 Configuration des événements sur le canvas');
 
     // Événements souris
     canvas.addEventListener('mousedown', this.handleMouseDown);
@@ -123,7 +122,6 @@ class SwipeableListItem extends Component {
    */
   handleMouseDown(event) {
     const coords = this.getCoordinates(event);
-    console.log('🖱️ MouseDown', coords, 'isInside:', this.isPointInside(coords.x, coords.y));
     this.onDragStart(coords.x, coords.y);
   }
 
@@ -134,7 +132,6 @@ class SwipeableListItem extends Component {
   handleMouseMove(event) {
     if (!this.dragging) return;
     const coords = this.getCoordinates(event);
-    console.log('🖱️ MouseMove', coords, 'dragging:', this.dragging);
     this.onDragMove(coords.x, coords.y);
     this.requestRender();
   }
@@ -145,7 +142,6 @@ class SwipeableListItem extends Component {
    */
   handleMouseUp(event) {
     if (!this.dragging) return;
-    console.log('🖱️ MouseUp');
     this.onDragEnd();
     this.requestRender();
   }
@@ -156,7 +152,6 @@ class SwipeableListItem extends Component {
    */
   handleTouchStart(event) {
     const coords = this.getCoordinates(event);
-    console.log('👆 TouchStart', coords, 'isInside:', this.isPointInside(coords.x, coords.y));
     if (this.isPointInside(coords.x, coords.y)) {
       event.preventDefault();
       this.onDragStart(coords.x, coords.y);
@@ -171,7 +166,6 @@ class SwipeableListItem extends Component {
     if (!this.dragging) return;
     event.preventDefault();
     const coords = this.getCoordinates(event);
-    console.log('👆 TouchMove', coords);
     this.onDragMove(coords.x, coords.y);
     this.requestRender();
   }
@@ -183,7 +177,6 @@ class SwipeableListItem extends Component {
   handleTouchEnd(event) {
     if (!this.dragging) return;
     event.preventDefault();
-    console.log('👆 TouchEnd');
     this.onDragEnd();
     this.requestRender();
   }
@@ -205,14 +198,12 @@ class SwipeableListItem extends Component {
    */
   onDragStart(x, y) {
     const inside = this.isPointInside(x, y);
-    console.log('🟢 onDragStart', { x, y, inside, bounds: { x: this.x, y: this.y, w: this.width, h: this.height } });
     
     if (inside) {
       this.dragging = true;
       this.startX = x;
       this.startY = y;
       this.hasMoved = false;
-      console.log('✅ Swipe démarré');
     } else {
       console.log('❌ Point en dehors des limites');
     }
@@ -228,7 +219,6 @@ class SwipeableListItem extends Component {
       const deltaX = x - this.startX;
       const deltaY = Math.abs(y - this.startY);
 
-      console.log('🔄 onDragMove', { deltaX, deltaY, hasMoved: this.hasMoved });
 
       // Swipe horizontal seulement si déplacement > 5px
       if (Math.abs(deltaX) > 5 || this.hasMoved) {
@@ -242,7 +232,6 @@ class SwipeableListItem extends Component {
         );
         this.dragOffset = Math.min(Math.max(this.dragOffset, -maxOffset), maxOffset);
 
-        console.log('↔️ Offset mis à jour:', this.dragOffset);
       }
     }
   }
@@ -252,14 +241,11 @@ class SwipeableListItem extends Component {
    */
   onDragEnd() {
     if (this.dragging) {
-      console.log('🔴 onDragEnd', { offset: this.dragOffset, hasMoved: this.hasMoved });
 
       if (this.hasMoved) {
         if (this.dragOffset > 80 && this.leftActions[0]) {
-          console.log('✅ Action gauche déclenchée');
           this.leftActions[0].onClick?.();
         } else if (this.dragOffset < -80 && this.rightActions[0]) {
-          console.log('✅ Action droite déclenchée');
           this.rightActions[0].onClick?.();
         }
       }
@@ -333,12 +319,6 @@ class SwipeableListItem extends Component {
  isPointInside(x, y) {
   const inside = x >= this.x && x <= this.x + this.width &&
                  y >= this.y && y <= this.y + this.height;
-  
-  console.log('🎯 isPointInside check', {
-    point: { x, y },
-    bounds: { x: this.x, y: this.y, width: this.width, height: this.height },
-    inside
-  });
   
   return inside;
 }

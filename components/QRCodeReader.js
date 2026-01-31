@@ -533,5 +533,4 @@ class QRCodeReader extends Component {
   }
 }
 
-
 export default QRCodeReader;

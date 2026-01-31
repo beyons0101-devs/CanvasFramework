@@ -53,16 +53,35 @@ class ListItem extends Component {
    * @param {number} y - Coordonnée Y
    * @private
    */
-  handlePress(x, y) {
+   handlePress(x, y) {
     if (this.platform === 'material') {
-      const adjustedY = y - this.framework.scrollOffset;
+      // ✅ CORRECTION : Calculer les coordonnées LOCALES du composant
+      // x et y sont déjà les coordonnées écran après ajustement par le framework
+      
+      // Calculer les coordonnées relatives au composant
+      const localX = x - this.x;
+      const localY = y - this.y;
+      
+      // ✅ AJOUTER : Vérifier si le point est vraiment dans le composant
+      if (localX < 0 || localX > this.width || localY < 0 || localY > this.height) {
+        return; // Le clic n'est pas dans le composant
+      }
+      
       this.ripples.push({
-        x: x - this.x,
-        y: adjustedY - this.y,
+        x: localX, // ✅ Coordonnée X relative au composant
+        y: localY, // ✅ Coordonnée Y relative au composant
         radius: 0,
         maxRadius: Math.max(this.width, this.height) * 1.5,
-        opacity: 1
+        opacity: 1,
+        startTime: Date.now() // Pour une animation plus précise
       });
+      // ✅ TEMPORAIREMENT mettre pressed à true pour le feedback visuel immédiat
+      this.pressed = true;
+      
+      // ✅ MAIS le remettre à false après un court délai
+      setTimeout(() => {
+        this.pressed = false;
+      }, 150); // 150ms de feedback tactile
       this.animateRipple();
     }
   }
@@ -72,28 +91,54 @@ class ListItem extends Component {
    * @private
    */
   animateRipple() {
+    let animationId = null;
+    const startTime = Date.now();
+    const duration = 600; // 600ms pour l'animation complète
+    
     const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
       let hasActiveRipples = false;
       
       for (let ripple of this.ripples) {
-        if (ripple.radius < ripple.maxRadius) {
-          ripple.radius += ripple.maxRadius / 15;
-          hasActiveRipples = true;
+        // ✅ Animation plus fluide avec easing
+        const easedProgress = this.easeOutCubic(progress);
+        ripple.radius = easedProgress * ripple.maxRadius;
+        
+        // Fade out à partir de 50% de progression
+        if (progress > 0.5) {
+          const fadeProgress = (progress - 0.5) / 0.5;
+          ripple.opacity = 1 - fadeProgress;
         }
         
-        if (ripple.radius >= ripple.maxRadius * 0.5) {
-          ripple.opacity -= 0.05;
+        if (progress < 1) {
+          hasActiveRipples = true;
         }
       }
       
+      // Filtrer les ripples terminés
       this.ripples = this.ripples.filter(r => r.opacity > 0);
       
-      if (hasActiveRipples) {
-        requestAnimationFrame(animate);
+      if (hasActiveRipples && this.ripples.length > 0) {
+        animationId = requestAnimationFrame(animate);
+      } else {
+        // ✅ Nettoyer quand l'animation est terminée
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+        }
+        this.ripples = [];
       }
     };
     
-    animate();
+    animationId = requestAnimationFrame(animate);
+  }
+  
+   /**
+   * Fonction d'easing pour animation fluide
+   */
+  easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
   }
   
   /**
@@ -103,108 +148,109 @@ class ListItem extends Component {
   draw(ctx) {
     ctx.save();
     
-    // Background
+    // 1. Background (toujours opaque)
     ctx.fillStyle = this.pressed ? '#F5F5F5' : this.bgColor;
     ctx.fillRect(this.x, this.y, this.width, this.height);
     
-    // Ripple effect (Material)
+    // 2. Ripples (si présents)
     if (this.platform === 'material' && this.ripples.length > 0) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(this.x, this.y, this.width, this.height);
-      ctx.clip();
-      
-      for (let ripple of this.ripples) {
-        ctx.globalAlpha = ripple.opacity;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+        ctx.save();
+        
+        // Clip pour contenir les ripples
         ctx.beginPath();
-        ctx.arc(this.x + ripple.x, this.y + ripple.y, ripple.radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      
-      ctx.restore();
+        ctx.rect(this.x, this.y, this.width, this.height);
+        ctx.clip();
+        
+        // Dessiner tous les ripples
+        for (let ripple of this.ripples) {
+            // Utiliser fillStyle avec alpha intégré au lieu de globalAlpha
+            ctx.fillStyle = `rgba(0, 0, 0, ${0.1 * ripple.opacity})`;
+            ctx.beginPath();
+            ctx.arc(this.x + ripple.x, this.y + ripple.y, ripple.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.restore();
     }
     
+    // 3. Contenu (texte, icônes, etc.) - toujours avec alpha = 1
+    this.drawContent(ctx);
+    
+    ctx.restore();
+}
+
+/**
+ * Dessine le contenu du ListItem (séparé pour plus de clarté)
+ */
+drawContent(ctx) {
     let leftOffset = 16;
     
-    // Left Icon ou Image
     if (this.leftIcon) {
-      ctx.fillStyle = '#757575';
-      ctx.font = '24px sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.leftIcon, this.x + leftOffset, this.y + this.height / 2);
-      leftOffset += 48;
+        ctx.fillStyle = '#757575';
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.leftIcon, this.x + leftOffset, this.y + this.height / 2);
+        leftOffset += 48;
     } else if (this.leftImage) {
-      // Circle pour l'avatar
-      ctx.fillStyle = '#E0E0E0';
-      ctx.beginPath();
-      ctx.arc(this.x + leftOffset + 20, this.y + this.height / 2, 20, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // TODO: Charger vraie image
-      ctx.fillStyle = '#757575';
-      ctx.font = '14px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('👤', this.x + leftOffset + 20, this.y + this.height / 2);
-      
-      leftOffset += 56;
+        ctx.fillStyle = '#E0E0E0';
+        ctx.beginPath();
+        ctx.arc(this.x + leftOffset + 20, this.y + this.height / 2, 20, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#757575';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('👤', this.x + leftOffset + 20, this.y + this.height / 2);
+        leftOffset += 56;
     }
     
-    // Title et Subtitle
     const textX = this.x + leftOffset;
     const centerY = this.y + this.height / 2;
     
     if (this.subtitle) {
-      // Title
-      ctx.fillStyle = '#000000';
-      ctx.font = '16px -apple-system, Roboto, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(this.title, textX, centerY - 2);
-      
-      // Subtitle
-      ctx.fillStyle = '#757575';
-      ctx.font = '14px -apple-system, Roboto, sans-serif';
-      ctx.textBaseline = 'top';
-      ctx.fillText(this.subtitle, textX, centerY + 2);
+        ctx.fillStyle = '#000000';
+        ctx.font = '16px -apple-system, Roboto, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(this.title, textX, centerY - 2);
+        
+        ctx.fillStyle = '#757575';
+        ctx.font = '14px -apple-system, Roboto, sans-serif';
+        ctx.textBaseline = 'top';
+        ctx.fillText(this.subtitle, textX, centerY + 2);
     } else {
-      // Title seul (centré verticalement)
-      ctx.fillStyle = '#000000';
-      ctx.font = '16px -apple-system, Roboto, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.title, textX, centerY);
+        ctx.fillStyle = '#000000';
+        ctx.font = '16px -apple-system, Roboto, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.title, textX, centerY);
     }
     
-    // Right Text ou Icon
     if (this.rightText) {
-      ctx.fillStyle = '#757575';
-      ctx.font = '14px -apple-system, Roboto, sans-serif';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.rightText, this.x + this.width - 16, centerY);
+        ctx.fillStyle = '#757575';
+        ctx.font = '14px -apple-system, Roboto, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.rightText, this.x + this.width - 16, centerY);
     } else if (this.rightIcon) {
-      ctx.fillStyle = '#757575';
-      ctx.font = '20px sans-serif';
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.rightIcon, this.x + this.width - 16, centerY);
+        ctx.fillStyle = '#757575';
+        ctx.font = '20px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.rightIcon, this.x + this.width - 16, centerY);
     }
     
-    // Divider
     if (this.divider) {
-      ctx.strokeStyle = '#E0E0E0';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(this.x + leftOffset, this.y + this.height);
-      ctx.lineTo(this.x + this.width, this.y + this.height);
-      ctx.stroke();
+        ctx.strokeStyle = '#E0E0E0';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.x + leftOffset, this.y + this.height);
+        ctx.lineTo(this.x + this.width, this.y + this.height);
+        ctx.stroke();
     }
-    
-    ctx.restore();
-  }
+}
   
   /**
    * Vérifie si un point est dans les limites

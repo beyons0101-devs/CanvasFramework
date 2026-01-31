@@ -200,6 +200,7 @@ class Button extends Component {
       
       this.ripples = this.ripples.filter(r => r.opacity > 0);
       
+	  
       if (hasActiveRipples) {
         requestAnimationFrame(animate);
       }
