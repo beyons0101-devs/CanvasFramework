@@ -156,13 +156,14 @@ class CanvasFramework {
         // ✅ AJOUTER: Démarrer le chronomètre
         const startTime = performance.now();
 
-        // ✅ OPTIMISATION OPTION 5: Contexte Canvas optimisé
-        this.canvas = document.getElementById(canvasId);
-        /*this.ctx = this.canvas.getContext('2d', {
-            alpha: false, // ✅ Gain de 30% de performance
-            desynchronized: true, // ✅ Bypass la queue du navigateur
-            willReadFrequently: false
-        });*/
+		// ✅ Créer automatiquement le canvas
+		this.canvas = document.createElement('canvas');
+		this.canvas.id = canvasId || `canvas-${Date.now()}`;
+		this.canvas.style.display = 'block';
+		this.canvas.style.touchAction = 'none';
+		this.canvas.style.userSelect = 'none';
+		document.body.appendChild(this.canvas);
+        
 		// NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
         this.useWebGL = options.useWebGL ?? false;   // utilise la valeur si fournie, sinon false
     
@@ -999,71 +1000,73 @@ class CanvasFramework {
      * ✅ OPTIMISATION OPTION 2: Rendu partiel (seulement les composants sales)
      * @private
      */
-    _renderDirtyComponents() {
-        const ctx = this.optimizations.useDoubleBuffering ? this._bufferCtx : this.ctx;
-
-        if (!ctx || this.dirtyComponents.size === 0) return;
-
-        // Séparer les composants sales par type
-        const fixedDirty = [];
-        const scrollableDirty = [];
-
-        this.dirtyComponents.forEach(comp => {
-            if (comp.visible) {
-                if (this.isFixedComponent(comp)) {
-                    fixedDirty.push(comp);
-                } else {
-                    scrollableDirty.push(comp);
-                }
-            }
-        });
-
-        // ✅ CORRECTION : Traiter séparément pour éviter les problèmes de contexte
-
-        // 1. Dessiner les composants scrollables d'abord
-        if (scrollableDirty.length > 0) {
-            for (let comp of scrollableDirty) {
-                const screenY = comp.y + this.scrollOffset;
-
-                // Nettoyer la zone avec le background
-                ctx.save();
-                ctx.fillStyle = this.backgroundColor || '#ffffff';
-                ctx.fillRect(comp.x - 2, screenY - 2, comp.width + 4, comp.height + 4);
-                ctx.restore();
-
-                // Dessiner le composant avec translation
-                ctx.save();
-                ctx.translate(0, this.scrollOffset);
-                comp.draw(ctx);
-                ctx.restore();
-
-                if (comp.markClean) comp.markClean();
-            }
-        }
-
-        // 2. Dessiner les composants fixes ensuite
-        if (fixedDirty.length > 0) {
-            for (let comp of fixedDirty) {
-                // Nettoyer la zone avec le background
-                ctx.save();
-                ctx.fillStyle = this.backgroundColor || '#ffffff';
-                ctx.fillRect(comp.x - 2, comp.y - 2, comp.width + 4, comp.height + 4);
-                ctx.restore();
-
-                // Dessiner le composant sans translation
-                comp.draw(ctx);
-
-                if (comp.markClean) comp.markClean();
-            }
-        }
-
-        this.dirtyComponents.clear();
-
-        // Flush si on utilise le double buffering
-        if (this.optimizations.useDoubleBuffering) {
-            this.flush();
-        }
-    }
+	_renderDirtyComponents() {
+		const ctx = this.optimizations.useDoubleBuffering ? this._bufferCtx : this.ctx;
+		
+		if (!ctx || this.dirtyComponents.size === 0) return;
+		
+		// ✅ CORRECTION : Ne pas nettoyer avec fillRect !
+		// À la place, utiliser le clipping pour redessiner proprement
+		
+		// Copier dans un tableau
+		const dirtyArray = Array.from(this.dirtyComponents);
+		
+		// Vider immédiatement
+		this.dirtyComponents.clear();
+		
+		// Séparer les composants
+		const fixedComps = [];
+		const scrollableComps = [];
+		
+		dirtyArray.forEach(comp => {
+			if (!comp.visible) return;
+			
+			if (this.isFixedComponent(comp)) {
+				fixedComps.push(comp);
+			} else {
+				scrollableComps.push(comp);
+			}
+		});
+		
+		// ✅ APPROCHE CORRECTE : Redessiner les composants sales
+		// sans effacer leur zone d'abord
+		
+		// 1. Dessiner les scrollables
+		if (scrollableComps.length > 0) {
+			ctx.save();
+			ctx.translate(0, this.scrollOffset);
+			
+			for (let comp of scrollableComps) {
+				// ✅ NE PAS faire de fillRect !
+				// Juste dessiner le composant
+				if (comp.draw) {
+					comp.draw(ctx);
+				}
+				
+				if (comp.markClean) {
+					comp.markClean();
+				}
+			}
+			
+			ctx.restore();
+		}
+		
+		// 2. Dessiner les fixes
+		for (let comp of fixedComps) {
+			if (comp.draw) {
+				comp.draw(ctx);
+			}
+			
+			if (comp.markClean) {
+				comp.markClean();
+			}
+		}
+		
+		// Flush si double buffering
+		if (this.optimizations.useDoubleBuffering) {
+			this.flush();
+		}
+	}
 
     /**
      * Active/désactive une optimisation spécifique
@@ -2467,10 +2470,20 @@ class CanvasFramework {
 
     // 4. Modifiez markComponentDirty() pour éviter de marquer pendant le scroll
     markComponentDirty(component) {
-        if (this.optimizationEnabled && !this.isDragging && Math.abs(this.scrollVelocity) < 5) {
-            this.dirtyComponents.add(component);
-        }
-    }
+		// Vérifications basiques
+		if (!component || !component.visible) return;
+		
+		// ✅ TOUJOURS ajouter au set des composants sales
+		// Les conditions de rendu seront vérifiées dans _renderDirtyComponents
+		if (this.optimizationEnabled) {
+			this.dirtyComponents.add(component);
+		}
+		
+		// ✅ Optionnel : Marquer aussi le composant lui-même
+		if (component._dirty !== undefined) {
+			component._dirty = true;
+		}
+	}
 
     enableOptimization() {
         this.optimizationEnabled = true;
@@ -2637,76 +2650,53 @@ class CanvasFramework {
     }
 
     startRenderLoop() {
-        let lastScrollOffset = this.scrollOffset;
-        let framesWithoutScroll = 0;
-
-        const render = () => {
-            if (!this._splashFinished) {
-                requestAnimationFrame(render);
-                return;
-            }
-
-            // 1️⃣ Vérifier si le scroll a changé
-            const scrollChanged = Math.abs(this.scrollOffset - lastScrollOffset) > 0.1;
-            lastScrollOffset = this.scrollOffset;
-
-            // 2️⃣ Clear canvas AVEC BACKGROUND (toujours faire un clear complet)
+    let lastScrollOffset = this.scrollOffset;
+    let lastRenderMode = 'full';
+    
+    const render = () => {
+        if (!this._splashFinished) {
+            requestAnimationFrame(render);
+            return;
+        }
+        
+        // Vérifier le scroll
+        const scrollChanged = Math.abs(this.scrollOffset - lastScrollOffset) > 0.1;
+        lastScrollOffset = this.scrollOffset;
+        
+        // Décider du mode de rendu
+        let renderMode = 'full';
+        
+        if (this.optimizationEnabled && 
+            this.dirtyComponents.size > 0 &&
+            !this.isDragging &&
+            Math.abs(this.scrollVelocity) < 0.5 &&
+            !scrollChanged &&
+            this.dirtyComponents.size < 3) { // ✅ SEULEMENT si très peu de composants sales
+            renderMode = 'dirty';
+        }
+        
+        // ✅ IMPORTANT : NE PAS clear tout le canvas au début
+        // On ne nettoie que si on change de mode ou si c'est nécessaire
+        
+        if (renderMode === 'full' || lastRenderMode !== renderMode) {
+            // Rendu complet : clear tout
             this.ctx.fillStyle = this.backgroundColor || '#ffffff';
             this.ctx.fillRect(0, 0, this.width, this.height);
-
-            // 3️⃣ Transition handling
-            if (this.transitionState.isTransitioning) {
-                this.updateTransition();
-            }
-            // 4️⃣ Rendu optimisé UNIQUEMENT si pas de scroll actif et peu de composants sales
-            else if (this.optimizationEnabled &&
-                this.dirtyComponents.size > 0 &&
-                !this.isDragging &&
-                Math.abs(this.scrollVelocity) < 0.5) {
-
-                // ✅ OPTIMISATION : Si on scroll, on fait un rendu complet pour éviter le clignotement
-                if (scrollChanged && this.dirtyComponents.size < this.components.length / 2) {
-                    // Si beaucoup de composants sales + scroll, rendu complet
-                    this.renderFull();
-                } else {
-                    // Sinon, rendu optimisé
-                    this._renderDirtyComponents();
-                }
-            } else {
-                // Full redraw (plus stable pendant le scroll)
-                this.renderFull();
-            }
-
-            // 5️⃣ FPS
-            this._frames++;
-            const now = performance.now();
-            if (now - this._lastFpsTime >= 1000) {
-                this.fps = this._frames;
-                this._frames = 0;
-                this._lastFpsTime = now;
-            }
-
-            if (this.showFps) {
-                this.ctx.save();
-                this.ctx.fillStyle = 'lime';
-                this.ctx.font = '16px monospace';
-                this.ctx.fillText(`FPS: ${this.fps}`, 10, 20);
-                this.ctx.restore();
-            }
-
-            if (this.debbug) {
-                this.drawOverflowIndicators();
-            }
-
-            if (!this._firstRenderDone && this.components.length > 0) {
-                this._markFirstRender();
-            }
-
-            requestAnimationFrame(render);
-        };
-
-        render();
-    }
+            this.renderFull();
+        } else {
+            // Rendu optimisé : ne clear QUE les zones des composants sales
+            this._renderDirtyComponents();
+        }
+        
+        lastRenderMode = renderMode;
+        
+        // ... FPS et debug ...
+        
+        requestAnimationFrame(render);
+    };
+    
+    render();
+}
 
     // 3. Ajoutez une méthode renderFull() optimisée
     renderFull() {
@@ -2870,7 +2860,6 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
 
 
 
