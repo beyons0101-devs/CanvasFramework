@@ -45,12 +45,27 @@ class Drawer extends Component {
     // IMPORTANT: Définir les callbacks
     this.onPress = this.handlePress;
     this.onMove = this.handleMove;
+	// ✅ Se mettre automatiquement au-dessus de tous les composants
+	this.bringToFront();
+  }
+  
+  /**
+  * Met le drawer au-dessus de tous les composants
+  * @private
+  */
+  bringToFront() {
+    const index = this.framework.components.indexOf(this);
+    if (index > -1) {
+      this.framework.components.splice(index, 1);
+      this.framework.components.push(this);
+    }
   }
 
   /**
    * Ouvre le drawer
    */
   open() {
+	this.bringToFront(); // ✅ Se remettre au-dessus à chaque ouverture
     this.visible = true;
     this.targetX = 0;
     this.animate();
