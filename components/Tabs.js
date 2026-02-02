@@ -363,30 +363,38 @@ class Tabs extends Component {
     ctx.restore();
     
     // ===== DESSINER LES ENFANTS DU TAB ACTIF =====
-    const activeChildren = this.getActiveChildren();
-    
-    for (let child of activeChildren) {
-      if (child.visible) {
-        ctx.save();
-        
-        // Sauvegarder les coordonnées originales
-        const originalX = child.x;
-        const originalY = child.y;
-        
-        // Ajuster les coordonnées pour être absolues
-        child.x = this.x + originalX;
-        child.y = this.contentY + originalY;
-        
-        // Dessiner l'enfant
-        child.draw(ctx);
-        
-        // Restaurer les coordonnées originales
-        child.x = originalX;
-        child.y = originalY;
-        
-        ctx.restore();
-      }
-    }
+    // ===== DESSINER LES ENFANTS DU TAB ACTIF =====
+	const activeChildren = this.getActiveChildren();
+	const scrollOffset = this.framework.scrollOffset || 0;
+
+	ctx.save();
+
+	// ✅ clip de la zone de contenu
+	ctx.beginPath();
+	ctx.rect(this.x, this.contentY, this.width, this.contentHeight);
+	ctx.clip();
+
+	for (let child of activeChildren) {
+	  if (!child.visible) continue;
+
+	  ctx.save();
+
+	  const originalX = child.x;
+	  const originalY = child.y;
+
+	  // ✅ appliquer le scroll
+	  child.x = this.x + originalX;
+	  child.y = this.contentY + originalY - scrollOffset;
+
+	  child.draw(ctx);
+
+	  child.x = originalX;
+	  child.y = originalY;
+
+	  ctx.restore();
+	}
+
+	ctx.restore();
   }
 
   drawRipples(ctx, tabWidth) {
