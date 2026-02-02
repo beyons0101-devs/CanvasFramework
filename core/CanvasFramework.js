@@ -155,6 +155,15 @@ class CanvasFramework {
     constructor(canvasId, options = {}) {
         // ✅ AJOUTER: Démarrer le chronomètre
         const startTime = performance.now();
+		
+		this.metrics = {
+			initTime: 0,
+			firstRenderTime: null,
+			firstInteractionTime: null,
+			totalStartupTime: null
+		};
+		this._firstRenderDone = false;
+		this._startupStartTime = startTime;
 
 		// ✅ Créer automatiquement le canvas
 		this.canvas = document.createElement('canvas');
@@ -2649,54 +2658,86 @@ class CanvasFramework {
         }
     }
 
-    startRenderLoop() {
-    let lastScrollOffset = this.scrollOffset;
-    let lastRenderMode = 'full';
-    
-    const render = () => {
-        if (!this._splashFinished) {
-            requestAnimationFrame(render);
-            return;
-        }
-        
-        // Vérifier le scroll
-        const scrollChanged = Math.abs(this.scrollOffset - lastScrollOffset) > 0.1;
-        lastScrollOffset = this.scrollOffset;
-        
-        // Décider du mode de rendu
-        let renderMode = 'full';
-        
-        if (this.optimizationEnabled && 
-            this.dirtyComponents.size > 0 &&
-            !this.isDragging &&
-            Math.abs(this.scrollVelocity) < 0.5 &&
-            !scrollChanged &&
-            this.dirtyComponents.size < 3) { // ✅ SEULEMENT si très peu de composants sales
-            renderMode = 'dirty';
-        }
-        
-        // ✅ IMPORTANT : NE PAS clear tout le canvas au début
-        // On ne nettoie que si on change de mode ou si c'est nécessaire
-        
-        if (renderMode === 'full' || lastRenderMode !== renderMode) {
-            // Rendu complet : clear tout
-            this.ctx.fillStyle = this.backgroundColor || '#ffffff';
-            this.ctx.fillRect(0, 0, this.width, this.height);
-            this.renderFull();
-        } else {
-            // Rendu optimisé : ne clear QUE les zones des composants sales
-            this._renderDirtyComponents();
-        }
-        
-        lastRenderMode = renderMode;
-        
-        // ... FPS et debug ...
-        
-        requestAnimationFrame(render);
-    };
-    
-    render();
-}
+	startRenderLoop() {
+		let lastScrollOffset = this.scrollOffset;
+		let lastRenderMode = 'full';
+		
+		const render = () => {
+			if (!this._splashFinished) {
+				requestAnimationFrame(render);
+				return;
+			}
+			
+			// Vérifier le scroll
+			const scrollChanged = Math.abs(this.scrollOffset - lastScrollOffset) > 0.1;
+			lastScrollOffset = this.scrollOffset;
+			
+			// Décider du mode de rendu
+			let renderMode = 'full';
+			
+			if (this.optimizationEnabled && 
+				this.dirtyComponents.size > 0 &&
+				!this.isDragging &&
+				Math.abs(this.scrollVelocity) < 0.5 &&
+				!scrollChanged &&
+				this.dirtyComponents.size < 3) {
+				renderMode = 'dirty';
+			}
+			
+			if (renderMode === 'full' || lastRenderMode !== renderMode) {
+				this.ctx.fillStyle = this.backgroundColor || '#ffffff';
+				this.ctx.fillRect(0, 0, this.width, this.height);
+				this.renderFull();
+			} else {
+				this._renderDirtyComponents();
+			}
+			
+			lastRenderMode = renderMode;
+			
+			// ✅ AJOUTER : Calcul et affichage du FPS
+			this._frames++;
+			const now = performance.now();
+			const elapsed = now - this._lastFpsTime;
+			
+			if (elapsed >= 1000) {
+				this.fps = Math.round((this._frames * 1000) / elapsed);
+				this._frames = 0;
+				this._lastFpsTime = now;
+			}
+			
+			// ✅ AJOUTER : Afficher le FPS si activé
+			if (this.showFps) {
+				this.ctx.save();
+				this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+				this.ctx.fillRect(10, 10, 100, 40);
+				this.ctx.fillStyle = '#00ff00';
+				this.ctx.font = 'bold 20px monospace';
+				this.ctx.textAlign = 'left';
+				this.ctx.textBaseline = 'top';
+				this.ctx.fillText(`FPS: ${this.fps}`, 20, 20);
+				this.ctx.restore();
+			}
+			
+			// ✅ AJOUTER : Indicateurs de débogage si activés
+			if (this.debbug) {
+				this.drawOverflowIndicators();
+			}
+			
+			// ✅ AJOUTER : Marquer le premier rendu
+			if (!this._firstRenderDone) {
+				this._markFirstRender();
+			}
+			
+			// ✅ AJOUTER : Mettre à jour l'inertie si nécessaire
+			if (Math.abs(this.scrollVelocity) > 0.1 && !this.isDragging) {
+				this.scrollWorker.postMessage({ type: 'UPDATE_INERTIA' });
+			}
+			
+			requestAnimationFrame(render);
+		};
+		
+		render();
+	}
 
     // 3. Ajoutez une méthode renderFull() optimisée
     renderFull() {
@@ -2860,7 +2901,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
-
