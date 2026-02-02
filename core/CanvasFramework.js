@@ -1806,7 +1806,7 @@ class CanvasFramework {
         // Hook beforeLeave de la route actuelle (peut bloquer la navigation)
         const currentRouteData = this.routes.get(this.currentRoute);
         if (currentRouteData?.beforeLeave) {
-            const canLeave = await currentRouteData.beforeLeave(this.currentParams, this.currentQuery);
+            const canLeave = await currentRouteData.beforeLeave(this.currentParams, this.currentQuery, this);
             if (canLeave === false) {
                 console.log('Navigation cancelled by beforeLeave hook');
                 return;
@@ -1815,14 +1815,14 @@ class CanvasFramework {
 
         // ✅ NOUVEAU : Hook onLeave (alias plus intuitif de beforeLeave, mais ne bloque pas)
         if (currentRouteData?.onLeave) {
-            await currentRouteData.onLeave(this.currentParams, this.currentQuery);
+            await currentRouteData.onLeave(this.currentParams, this.currentQuery, this);
         }
 
         // ===== LIFECYCLE: AVANT D'ENTRER DANS LA NOUVELLE ROUTE =====
 
         // Hook beforeEnter de la nouvelle route (peut bloquer la navigation)
         if (route.beforeEnter) {
-            const canEnter = await route.beforeEnter(params, query);
+            const canEnter = await route.beforeEnter(params, query, this);
             if (canEnter === false) {
                 console.log('Navigation cancelled by beforeEnter hook');
                 return;
@@ -1831,7 +1831,7 @@ class CanvasFramework {
 
         // ✅ NOUVEAU : Hook onEnter (appelé juste avant de créer les composants)
         if (route.onEnter) {
-            await route.onEnter(params, query);
+            await route.onEnter(params, query, this);
         }
 
         // ===== SAUVEGARDER L'ÉTAT ACTUEL =====
@@ -1910,7 +1910,7 @@ class CanvasFramework {
 
         // Hook afterEnter (appelé immédiatement après la création des composants)
         if (route.afterEnter) {
-            route.afterEnter(params, query);
+            route.afterEnter(params, query, this);
         }
 
         // ✅ NOUVEAU : Hook afterLeave de l'ancienne route (après transition complète)
@@ -1918,11 +1918,11 @@ class CanvasFramework {
             // Si animation, attendre la fin de la transition
             if (animate && this.transitionState.isTransitioning) {
                 setTimeout(() => {
-                    currentRouteData.afterLeave(oldParams, oldQuery);
+                    currentRouteData.afterLeave(oldParams, oldQuery, this);
                 }, this.transitionState.duration || 300);
             } else {
                 // Pas d'animation, appeler immédiatement
-                currentRouteData.afterLeave(oldParams, oldQuery);
+                currentRouteData.afterLeave(oldParams, oldQuery, this);
             }
         }
 
@@ -2901,3 +2901,7 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
+
+
+
+
