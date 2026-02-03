@@ -11,7 +11,7 @@ It is designed for **mobile apps**, **embedded systems**, and **offline-first en
 ## 🚀 TL;DR
 
 - 🚫 No DOM, no HTML, no CSS  
-- 🎨 Canvas 2D with automatic WebGL acceleration  
+- 🎨 Canvas 2D with automatic WebGL acceleration for text rendering
 - 🧱 Flutter-inspired layout & rendering model  
 - ⚡ Deterministic UI & predictable performance  
 - 📱 Perfect for Capacitor / mobile WebView apps  
