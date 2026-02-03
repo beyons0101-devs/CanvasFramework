@@ -55,6 +55,7 @@ import Chart from '../components/Chart.js';
 import SliverAppBar from '../components/SliverAppBar.js';
 import AudioPlayer from '../components/AudioPlayer.js';
 import Camera from '../components/Camera.js';
+import FloatedCamera from '../components/FloatedCamera.js';
 import TimePicker from '../components/TimePicker.js';
 import QRCodeReader from '../components/QRCodeReader.js';
 

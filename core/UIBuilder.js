@@ -54,7 +54,9 @@ import InputDatalist from '../components/InputDatalist.js';
 import Banner from '../components/Banner.js';
 import Chart from '../components/Chart.js';
 import SliverAppBar from '../components/SliverAppBar.js';
+import AudioPlayer from '../components/AudioPlayer.js';
 import Camera from '../components/Camera.js';
+import FloatedCamera from '../components/FloatedCamera.js';
 import TimePicker from '../components/TimePicker.js';
 import QRCodeReader from '../components/QRCodeReader.js';
 
@@ -98,6 +100,7 @@ const Components = {
   AppBar,
   SliverAppBar,
   Chip,
+  Camera,
   Stepper,
   Accordion,
   Tabs,
@@ -105,17 +108,16 @@ const Components = {
   SwipeableListItem,
   ListItem,
   List,
+  QRCodeReader,
   VirtualList,
   BottomSheet,
   ProgressBar,
   RadioButton,
   Dialog,
-  QRCodeReader,
+  TimePicker,
   ContextMenu,
   Checkbox,
   Toast,
-  Camera,
-  TimePicker,
   NumberInput,
   TextField,
   SelectDialog,
@@ -124,6 +126,7 @@ const Components = {
   Divider,
   FileUpload,
   Table,
+  AudioPlayer,
   TreeView,
   SearchInput,
   ImageCarousel,
@@ -260,6 +263,4 @@ ui.stack = ui.stack || ((props = {}, children = []) =>
 ui.grid = ui.grid || ((props = {}, children = []) =>
   ui._create('Grid', props, Array.isArray(children) ? children : [children]));
 
-
 export default ui;
-
