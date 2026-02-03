@@ -34,6 +34,25 @@ class Camera extends Component {
 
     this.isStarting = false;
   }
+  
+  static cleanupAllCameras() {
+    const allVideos = document.querySelectorAll('video');
+    allVideos.forEach(video => {
+      // Arrêter les streams
+      if (video.srcObject) {
+         const stream = video.srcObject;
+         if (stream && stream.getTracks) {
+             stream.getTracks().forEach(track => track.stop());
+         }
+	     video.srcObject = null;     
+  	  }
+            
+      // Supprimer du DOM
+      if (video.parentNode) {
+          video.parentNode.removeChild(video);
+      }
+    });
+  }
 
   async _mount() {
     super._mount?.();
@@ -120,6 +139,7 @@ class Camera extends Component {
   handleMouseUp(e) {}
 
   async startCamera() {
+	Camera.cleanupAllCameras();  
     if (this.stream) return;
 
     try {

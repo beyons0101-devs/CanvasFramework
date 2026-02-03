@@ -1,7 +1,7 @@
 import Component from '../core/Component.js';
 
 /**
- * Composant FloatedCamera autonome avec gestion directe des clics/touches
+ * Composant Camera autonome avec gestion directe des clics/touches
  * Modes : contain (tout visible + bandes), cover (remplit + crop), fit (centre sans crop)
  */
 class FloatedCamera extends Component {
@@ -33,6 +33,25 @@ class FloatedCamera extends Component {
     this.previewTimeout = null;
 
     this.isStarting = false;
+  }
+  
+  static cleanupAllCameras() {
+    const allVideos = document.querySelectorAll('video');
+    allVideos.forEach(video => {
+      // Arrêter les streams
+      if (video.srcObject) {
+         const stream = video.srcObject;
+         if (stream && stream.getTracks) {
+             stream.getTracks().forEach(track => track.stop());
+         }
+	     video.srcObject = null;     
+  	  }
+            
+      // Supprimer du DOM
+      if (video.parentNode) {
+          video.parentNode.removeChild(video);
+      }
+    });
   }
 
   async _mount() {
@@ -120,6 +139,7 @@ class FloatedCamera extends Component {
   handleMouseUp(e) {}
 
   async startCamera() {
+	FloatedCamera.cleanupAllCameras();  
     if (this.stream) return;
 
     try {
