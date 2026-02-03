@@ -1781,6 +1781,7 @@ class CanvasFramework {
      * @private
      */
     async navigateTo(path, options = {}) {
+		
         const {
             replace = false,
                 animate = true,
@@ -1803,7 +1804,7 @@ class CanvasFramework {
         } = match;
 
         // ===== LIFECYCLE: AVANT DE QUITTER L'ANCIENNE ROUTE =====
-
+		
         // Hook beforeLeave de la route actuelle (peut bloquer la navigation)
         const currentRouteData = this.routes.get(this.currentRoute);
         if (currentRouteData?.beforeLeave) {
@@ -1903,9 +1904,10 @@ class CanvasFramework {
         // ===== LANCER L'ANIMATION DE TRANSITION =====
 
         if (animate && !this.transitionState.isTransitioning) {
-            const transitionType = transition || route.transition || 'slide';
-            this.startTransition(oldComponents, this.components, transitionType, direction);
-        }
+			const transitionType = transition || route.transition || 'slide';
+			this.startTransition(oldComponents, this.components, transitionType, direction);
+			// Pas besoin d'appeler renderFull() ici, la boucle de rendu s'en chargera
+		}
 
         // ===== LIFECYCLE: APRÈS ÊTRE ENTRÉ DANS LA NOUVELLE ROUTE =====
 
@@ -1929,6 +1931,17 @@ class CanvasFramework {
 
         // ✅ OPTIONNEL : Marquer les composants comme "dirty" pour forcer le rendu
         this._maxScrollDirty = true;
+		
+		this.components.forEach(comp => {
+			// Vérifier si c'est un composant caméra
+			if (comp.constructor.name === 'FloatedCamera' || comp.constructor.name === 'Camera') {
+				// Arrêter le stream vidéo
+				if (comp.stopCamera && typeof comp.stopCamera === 'function') {
+					comp.stopCamera();
+					console.log(`🎥 Caméra ${comp.constructor.name} arrêtée avant navigation`);
+				}
+			}
+		});
     }
 
     /**
@@ -2661,7 +2674,6 @@ class CanvasFramework {
 
 	startRenderLoop() {
 		let lastScrollOffset = this.scrollOffset;
-		let lastRenderMode = 'full';
 		
 		const render = () => {
 			if (!this._splashFinished) {
@@ -2669,33 +2681,31 @@ class CanvasFramework {
 				return;
 			}
 			
-			// Vérifier le scroll
-			const scrollChanged = Math.abs(this.scrollOffset - lastScrollOffset) > 0.1;
-			lastScrollOffset = this.scrollOffset;
+			// TOUJOURS effacer l'écran en premier
+			this.ctx.fillStyle = this.backgroundColor || '#ffffff';
+			this.ctx.fillRect(0, 0, this.width, this.height);
 			
-			// Décider du mode de rendu
-			let renderMode = 'full';
-			
-			if (this.optimizationEnabled && 
-				this.dirtyComponents.size > 0 &&
-				!this.isDragging &&
-				Math.abs(this.scrollVelocity) < 0.5 &&
-				!scrollChanged &&
-				this.dirtyComponents.size < 3) {
-				renderMode = 'dirty';
-			}
-			
-			if (renderMode === 'full' || lastRenderMode !== renderMode) {
-				this.ctx.fillStyle = this.backgroundColor || '#ffffff';
-				this.ctx.fillRect(0, 0, this.width, this.height);
+			// Si une transition est en cours
+			if (this.transitionState.isTransitioning) {
+				// Mettre à jour la progression
+				const elapsed = Date.now() - this.transitionState.startTime;
+				this.transitionState.progress = Math.min(elapsed / this.transitionState.duration, 1);
+				
+				// Rendu spécial pour la transition
+				this.renderSimpleTransition();
+				
+				// Si la transition est terminée
+				if (this.transitionState.progress >= 1) {
+					this.transitionState.isTransitioning = false;
+					this.transitionState.oldComponents = [];
+				}
+			} 
+			// Sinon, rendu normal
+			else {
 				this.renderFull();
-			} else {
-				this._renderDirtyComponents();
 			}
 			
-			lastRenderMode = renderMode;
-			
-			// ✅ AJOUTER : Calcul et affichage du FPS
+			// Calcul FPS (optionnel)
 			this._frames++;
 			const now = performance.now();
 			const elapsed = now - this._lastFpsTime;
@@ -2706,7 +2716,6 @@ class CanvasFramework {
 				this._lastFpsTime = now;
 			}
 			
-			// ✅ AJOUTER : Afficher le FPS si activé
 			if (this.showFps) {
 				this.ctx.save();
 				this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
@@ -2719,17 +2728,7 @@ class CanvasFramework {
 				this.ctx.restore();
 			}
 			
-			// ✅ AJOUTER : Indicateurs de débogage si activés
-			if (this.debbug) {
-				this.drawOverflowIndicators();
-			}
-			
-			// ✅ AJOUTER : Marquer le premier rendu
-			if (!this._firstRenderDone) {
-				this._markFirstRender();
-			}
-			
-			// ✅ AJOUTER : Mettre à jour l'inertie si nécessaire
+			// Mettre à jour l'inertie du scroll
 			if (Math.abs(this.scrollVelocity) > 0.1 && !this.isDragging) {
 				this.scrollWorker.postMessage({ type: 'UPDATE_INERTIA' });
 			}
@@ -2740,53 +2739,186 @@ class CanvasFramework {
 		render();
 	}
 
-    // 3. Ajoutez une méthode renderFull() optimisée
-    renderFull() {
-        // Sauvegarder le contexte
-        this.ctx.save();
+	/**
+	 * Rendu ultra simple pour la transition slide
+	 */
+	renderSimpleTransition() {
+		const { progress, type, direction, oldComponents, newComponents } = this.transitionState;
+		
+		// Calculer la position de décalage
+		const slideOffset = this.width * (1 - progress);
+		const directionMultiplier = direction === 'forward' ? 1 : -1;
+		
+		// Pour l'animation slide, dessiner seulement la nouvelle vue à la bonne position
+		if (type === 'slide') {
+			// Sauvegarder le contexte
+			this.ctx.save();
+			
+			// Appliquer la translation pour l'animation
+			this.ctx.translate(slideOffset * directionMultiplier, 0);
+			
+			// Dessiner UNIQUEMENT les nouveaux composants
+			for (let comp of newComponents) {
+				if (comp && comp.visible) {
+					const isFixed = this.isFixedComponent(comp);
+					
+					if (isFixed) {
+						comp.draw(this.ctx);
+					} else {
+						// Pour les composants scrollables, ajouter le décalage
+						this.ctx.save();
+						this.ctx.translate(0, this.scrollOffset);
+						comp.draw(this.ctx);
+						this.ctx.restore();
+					}
+				}
+			}
+			
+			this.ctx.restore();
+		}
+		// Pour fade, dessiner la nouvelle vue avec alpha
+		else if (type === 'fade') {
+			this.ctx.save();
+			this.ctx.globalAlpha = progress;
+			
+			for (let comp of newComponents) {
+				if (comp && comp.visible) {
+					const isFixed = this.isFixedComponent(comp);
+					
+					if (isFixed) {
+						comp.draw(this.ctx);
+					} else {
+						this.ctx.save();
+						this.ctx.translate(0, this.scrollOffset);
+						comp.draw(this.ctx);
+						this.ctx.restore();
+					}
+				}
+			}
+			
+			this.ctx.restore();
+		}
+		// Pour 'none', dessiner normalement
+		else {
+			this.renderFull();
+		}
+	}
 
-        // Séparer les composants
-        const scrollableComponents = [];
-        const fixedComponents = [];
+	/**
+	 * Rendu normal (sans transition)
+	 */
+	renderFull() {
+		this.ctx.save();
+		
+		// Séparer les composants fixes et scrollables
+		const scrollableComponents = [];
+		const fixedComponents = [];
+		
+		for (let comp of this.components) {
+			if (this.isFixedComponent(comp)) {
+				fixedComponents.push(comp);
+			} else {
+				scrollableComponents.push(comp);
+			}
+		}
+		
+		// Dessiner les composants scrollables
+		if (scrollableComponents.length > 0) {
+			this.ctx.save();
+			this.ctx.translate(0, this.scrollOffset);
+			
+			for (let comp of scrollableComponents) {
+				if (comp.visible) {
+					comp.draw(this.ctx);
+				}
+			}
+			
+			this.ctx.restore();
+		}
+		
+		// Dessiner les composants fixes
+		for (let comp of fixedComponents) {
+			if (comp.visible) {
+				comp.draw(this.ctx);
+			}
+		}
+		
+		this.ctx.restore();
+	}
+		
+	/**
+	 * Mettre à jour la progression de la transition
+	 * @private
+	 */
+	updateTransition() {
+		if (!this.transitionState.isTransitioning) return;
+		
+		const elapsed = Date.now() - this.transitionState.startTime;
+		this.transitionState.progress = Math.min(elapsed / this.transitionState.duration, 1);
+		
+		// Si la transition est terminée
+		if (this.transitionState.progress >= 1) {
+			this.transitionState.isTransitioning = false;
+			
+			// Marquer tous les nouveaux composants comme sales pour le prochain rendu
+			this.transitionState.newComponents.forEach(comp => {
+				this.markComponentDirty(comp);
+			});
+		}
+	}
 
-        for (let comp of this.components) {
-            if (this.isFixedComponent(comp)) {
-                fixedComponents.push(comp);
-            } else {
-                scrollableComponents.push(comp);
-            }
-        }
+	/**
+	 * Rendu complet normal (sans transition)
+	 * @private
+	 */
+	renderFull() {
+		// Sauvegarder le contexte
+		this.ctx.save();
+		
+		// Séparer les composants
+		const scrollableComponents = [];
+		const fixedComponents = [];
+		
+		for (let comp of this.components) {
+			if (this.isFixedComponent(comp)) {
+				fixedComponents.push(comp);
+			} else {
+				scrollableComponents.push(comp);
+			}
+		}
+		
+		// Dessiner les composants scrollables avec translation
+		if (scrollableComponents.length > 0) {
+			this.ctx.save();
+			this.ctx.translate(0, this.scrollOffset);
+			
+			for (let comp of scrollableComponents) {
+				if (comp.visible) {
+					// Viewport culling
+					const screenY = comp.y + this.scrollOffset;
+					const isInViewport = screenY + comp.height >= -100 && screenY <= this.height + 100;
+					
+					if (isInViewport) {
+						comp.draw(this.ctx);
+					}
+				}
+			}
+			
+			this.ctx.restore();
+		}
+		
+		// Dessiner les composants fixes
+		for (let comp of fixedComponents) {
+			if (comp.visible) {
+				comp.draw(this.ctx);
+			}
+		}
+		
+		// Restaurer le contexte
+		this.ctx.restore();
+	}
 
-        // ✅ OPTIMISATION : Dessiner les composants scrollables avec translation
-        if (scrollableComponents.length > 0) {
-            this.ctx.save();
-            this.ctx.translate(0, this.scrollOffset);
-
-            for (let comp of scrollableComponents) {
-                if (comp.visible) {
-                    // Viewport culling
-                    const screenY = comp.y + this.scrollOffset;
-                    const isInViewport = screenY + comp.height >= -100 && screenY <= this.height + 100;
-
-                    if (isInViewport) {
-                        comp.draw(this.ctx);
-                    }
-                }
-            }
-
-            this.ctx.restore();
-        }
-
-        // Dessiner les composants fixes
-        for (let comp of fixedComponents) {
-            if (comp.visible) {
-                comp.draw(this.ctx);
-            }
-        }
-
-        // Restaurer le contexte
-        this.ctx.restore();
-    }
+	   
 
     /**
      * Fait défiler à une position spécifique
@@ -2902,7 +3034,3 @@ class CanvasFramework {
 }
 
 export default CanvasFramework;
-
-
-
-
