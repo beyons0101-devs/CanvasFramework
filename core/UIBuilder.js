@@ -100,6 +100,7 @@ const Components = {
   AppBar,
   SliverAppBar,
   Chip,
+  FloatedCamera,
   Camera,
   Stepper,
   Accordion,
@@ -262,5 +263,6 @@ ui.stack = ui.stack || ((props = {}, children = []) =>
 
 ui.grid = ui.grid || ((props = {}, children = []) =>
   ui._create('Grid', props, Array.isArray(children) ? children : [children]));
+
 
 export default ui;
