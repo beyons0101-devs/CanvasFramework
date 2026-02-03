@@ -2745,19 +2745,48 @@ class CanvasFramework {
 	renderSimpleTransition() {
 		const { progress, type, direction, oldComponents, newComponents } = this.transitionState;
 		
-		// Calculer la position de décalage
-		const slideOffset = this.width * (1 - progress);
+		// Easing pour une animation plus fluide
+		const eased = this.easeInOutCubic(progress);
+		
 		const directionMultiplier = direction === 'forward' ? 1 : -1;
 		
-		// Pour l'animation slide, dessiner seulement la nouvelle vue à la bonne position
 		if (type === 'slide') {
-			// Sauvegarder le contexte
+			// ✅ AMÉLIORATION 1 : Dessiner l'ANCIENNE vue qui sort
 			this.ctx.save();
 			
-			// Appliquer la translation pour l'animation
-			this.ctx.translate(slideOffset * directionMultiplier, 0);
+			// L'ancienne vue se déplace vers la gauche/droite
+			const oldOffset = -this.width * eased * directionMultiplier;
+			this.ctx.translate(oldOffset, 0);
 			
-			// Dessiner UNIQUEMENT les nouveaux composants
+			// Légère transparence pour donner de la profondeur
+			this.ctx.globalAlpha = 1 - (eased * 0.3);
+			
+			// Dessiner les anciens composants
+			for (let comp of oldComponents) {
+				if (comp && comp.visible) {
+					const isFixed = this.isFixedComponent(comp);
+					
+					if (isFixed) {
+						comp.draw(this.ctx);
+					} else {
+						this.ctx.save();
+						this.ctx.translate(0, 0); // Pas de scroll pendant la transition
+						comp.draw(this.ctx);
+						this.ctx.restore();
+					}
+				}
+			}
+			
+			this.ctx.restore();
+			
+			// ✅ AMÉLIORATION 2 : Dessiner la NOUVELLE vue qui entre
+			this.ctx.save();
+			
+			// La nouvelle vue arrive de la droite/gauche
+			const newOffset = this.width * (1 - eased) * directionMultiplier;
+			this.ctx.translate(newOffset, 0);
+			
+			// Dessiner les nouveaux composants
 			for (let comp of newComponents) {
 				if (comp && comp.visible) {
 					const isFixed = this.isFixedComponent(comp);
@@ -2765,9 +2794,8 @@ class CanvasFramework {
 					if (isFixed) {
 						comp.draw(this.ctx);
 					} else {
-						// Pour les composants scrollables, ajouter le décalage
 						this.ctx.save();
-						this.ctx.translate(0, this.scrollOffset);
+						this.ctx.translate(0, 0); // Pas de scroll pendant la transition
 						comp.draw(this.ctx);
 						this.ctx.restore();
 					}
@@ -2776,20 +2804,39 @@ class CanvasFramework {
 			
 			this.ctx.restore();
 		}
-		// Pour fade, dessiner la nouvelle vue avec alpha
 		else if (type === 'fade') {
+			// Ancienne vue qui fade out
 			this.ctx.save();
-			this.ctx.globalAlpha = progress;
+			this.ctx.globalAlpha = 1 - eased;
 			
-			for (let comp of newComponents) {
+			for (let comp of oldComponents) {
 				if (comp && comp.visible) {
 					const isFixed = this.isFixedComponent(comp);
-					
 					if (isFixed) {
 						comp.draw(this.ctx);
 					} else {
 						this.ctx.save();
-						this.ctx.translate(0, this.scrollOffset);
+						this.ctx.translate(0, 0);
+						comp.draw(this.ctx);
+						this.ctx.restore();
+					}
+				}
+			}
+			
+			this.ctx.restore();
+			
+			// Nouvelle vue qui fade in
+			this.ctx.save();
+			this.ctx.globalAlpha = eased;
+			
+			for (let comp of newComponents) {
+				if (comp && comp.visible) {
+					const isFixed = this.isFixedComponent(comp);
+					if (isFixed) {
+						comp.draw(this.ctx);
+					} else {
+						this.ctx.save();
+						this.ctx.translate(0, 0);
 						comp.draw(this.ctx);
 						this.ctx.restore();
 					}
@@ -2798,7 +2845,6 @@ class CanvasFramework {
 			
 			this.ctx.restore();
 		}
-		// Pour 'none', dessiner normalement
 		else {
 			this.renderFull();
 		}
