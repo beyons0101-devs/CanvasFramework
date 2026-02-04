@@ -200,7 +200,7 @@ class AppBar extends Component {
     
     // Icône gauche
     if (this.leftIcon) {
-      const iconColor = this.platform === 'cupertino' ? '#007AFF' : this.textColor;
+      const iconColor = this.platform === 'cupertino' ? this.textColor : this.textColor;
       if (this.leftIcon === 'menu') {
         this.drawMenuIcon(ctx, this.x + 16, this.y + this.height / 2, iconColor);
       } else if (this.leftIcon === 'back') {
