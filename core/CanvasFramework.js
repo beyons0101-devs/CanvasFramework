@@ -1932,16 +1932,37 @@ class CanvasFramework {
         // ✅ OPTIONNEL : Marquer les composants comme "dirty" pour forcer le rendu
         this._maxScrollDirty = true;
 		
-		this.components.forEach(comp => {
+		// ✅ ARRÊTER LES CAMÉRAS DES ANCIENS COMPOSANTS
+		oldComponents.forEach(comp => {
 			// Vérifier si c'est un composant caméra
-			if (comp.constructor.name === 'FloatedCamera' || comp.constructor.name === 'Camera') {
+			if (comp.constructor.name === 'FloatedCamera' || 
+				comp.constructor.name === 'Camera' || 
+				comp.constructor.name === 'QRCodeReader') {
 				// Arrêter le stream vidéo
 				if (comp.stopCamera && typeof comp.stopCamera === 'function') {
 					comp.stopCamera();
-					console.log(`🎥 Caméra ${comp.constructor.name} arrêtée avant navigation`);
 				}
 			}
 		});
+		
+		// ✅ NOUVEAU : Vérifier si la nouvelle route contient des composants caméra
+		const hasCamera = this.components.some(comp => 
+			comp.constructor.name === 'FloatedCamera' || 
+			comp.constructor.name === 'Camera' || 
+			comp.constructor.name === 'QRCodeReader'
+		);
+		
+		// Si la nouvelle route N'A PAS de caméra, nettoyer toutes les vidéos après 3 secondes
+		if (!hasCamera) {
+			console.log('⏰ Nettoyage des vidéos programmé dans 3 secondes...');
+			setTimeout(() => {
+				const videos = document.querySelectorAll('video');
+				videos.forEach(v => v.remove());
+			}, 3000);
+		} else {
+			console.log('📹 Route avec caméra détectée, pas de nettoyage automatique');
+		}
+		
     }
 
     /**
