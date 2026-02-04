@@ -1781,189 +1781,120 @@ class CanvasFramework {
      * @private
      */
     async navigateTo(path, options = {}) {
-		
-        const {
-            replace = false,
-                animate = true,
-                direction = 'forward',
-                transition = null,
-                state = {}
-        } = options;
+		const {
+			replace = false,
+			animate = true,
+			direction = 'forward',
+			transition = null,
+			state = {}
+		} = options;
 
-        const match = this.matchRoute(path);
-        if (!match) {
-            console.warn(`Route not found: ${path}`);
-            return;
-        }
-
-        const {
-            route,
-            params,
-            query,
-            pathname
-        } = match;
-
-        // ===== LIFECYCLE: AVANT DE QUITTER L'ANCIENNE ROUTE =====
-		
-        // Hook beforeLeave de la route actuelle (peut bloquer la navigation)
-        const currentRouteData = this.routes.get(this.currentRoute);
-        if (currentRouteData?.beforeLeave) {
-            const canLeave = await currentRouteData.beforeLeave(this.currentParams, this.currentQuery, this);
-            if (canLeave === false) {
-                console.log('Navigation cancelled by beforeLeave hook');
-                return;
-            }
-        }
-
-        // ✅ NOUVEAU : Hook onLeave (alias plus intuitif de beforeLeave, mais ne bloque pas)
-        if (currentRouteData?.onLeave) {
-            await currentRouteData.onLeave(this.currentParams, this.currentQuery, this);
-        }
-
-        // ===== LIFECYCLE: AVANT D'ENTRER DANS LA NOUVELLE ROUTE =====
-
-        // Hook beforeEnter de la nouvelle route (peut bloquer la navigation)
-        if (route.beforeEnter) {
-            const canEnter = await route.beforeEnter(params, query, this);
-            if (canEnter === false) {
-                console.log('Navigation cancelled by beforeEnter hook');
-                return;
-            }
-        }
-
-        // ✅ NOUVEAU : Hook onEnter (appelé juste avant de créer les composants)
-        if (route.onEnter) {
-            await route.onEnter(params, query, this);
-        }
-
-        // ===== SAUVEGARDER L'ÉTAT ACTUEL =====
-
-        // Sauvegarder l'ancienne route pour l'animation et les hooks
-        const oldComponents = [...this.components];
-        const oldRoute = this.currentRoute;
-        const oldParams = {
-            ...this.currentParams
-        };
-        const oldQuery = {
-            ...this.currentQuery
-        };
-
-        // ===== METTRE À JOUR L'ÉTAT =====
-
-        this.currentRoute = pathname;
-        this.currentParams = params;
-        this.currentQuery = query;
-
-        // ===== GÉRER L'HISTORIQUE =====
-
-        if (!replace) {
-            this.historyIndex++;
-            this.history = this.history.slice(0, this.historyIndex);
-            this.history.push({
-                path,
-                params,
-                query,
-                state
-            });
-
-            // Mettre à jour l'historique du navigateur
-            window.history.pushState({
-                    route: path,
-                    params,
-                    query,
-                    state
-                },
-                '',
-                path
-            );
-        } else {
-            this.history[this.historyIndex] = {
-                path,
-                params,
-                query,
-                state
-            };
-            window.history.replaceState({
-                    route: path,
-                    params,
-                    query,
-                    state
-                },
-                '',
-                path
-            );
-        }
-
-        // ===== CRÉER LES NOUVEAUX COMPOSANTS =====
-
-        this.components = [];
-        if (typeof route.component === 'function') {
-            route.component(this, params, query);
-        }
-
-        // ===== LANCER L'ANIMATION DE TRANSITION =====
-
-        if (animate && !this.transitionState.isTransitioning) {
-			const transitionType = transition || route.transition || 'slide';
-			this.startTransition(oldComponents, this.components, transitionType, direction);
-			// Pas besoin d'appeler renderFull() ici, la boucle de rendu s'en chargera
+		const match = this.matchRoute(path);
+		if (!match) {
+			console.warn(`Route not found: ${path}`);
+			return;
 		}
 
-        // ===== LIFECYCLE: APRÈS ÊTRE ENTRÉ DANS LA NOUVELLE ROUTE =====
+		const { route, params, query, pathname } = match;
 
-        // Hook afterEnter (appelé immédiatement après la création des composants)
-        if (route.afterEnter) {
-            route.afterEnter(params, query, this);
-        }
+		// ===== LIFECYCLE: AVANT DE QUITTER L'ANCIENNE ROUTE =====
+		const currentRouteData = this.routes.get(this.currentRoute);
+		if (currentRouteData?.beforeLeave) {
+			const canLeave = await currentRouteData.beforeLeave(this.currentParams, this.currentQuery, this);
+			if (canLeave === false) {
+				console.log('Navigation cancelled by beforeLeave hook');
+				return;
+			}
+		}
 
-        // ✅ NOUVEAU : Hook afterLeave de l'ancienne route (après transition complète)
-        if (currentRouteData?.afterLeave) {
-            // Si animation, attendre la fin de la transition
-            if (animate && this.transitionState.isTransitioning) {
-                setTimeout(() => {
-                    currentRouteData.afterLeave(oldParams, oldQuery, this);
-                }, this.transitionState.duration || 300);
-            } else {
-                // Pas d'animation, appeler immédiatement
-                currentRouteData.afterLeave(oldParams, oldQuery, this);
-            }
-        }
+		if (currentRouteData?.onLeave) {
+			await currentRouteData.onLeave(this.currentParams, this.currentQuery, this);
+		}
 
-        // ✅ OPTIONNEL : Marquer les composants comme "dirty" pour forcer le rendu
-        this._maxScrollDirty = true;
-		
-		// ✅ ARRÊTER LES CAMÉRAS DES ANCIENS COMPOSANTS
+		// ===== LIFECYCLE: AVANT D'ENTRER DANS LA NOUVELLE ROUTE =====
+		if (route.beforeEnter) {
+			const canEnter = await route.beforeEnter(params, query, this);
+			if (canEnter === false) {
+				console.log('Navigation cancelled by beforeEnter hook');
+				return;
+			}
+		}
+
+		if (route.onEnter) {
+			await route.onEnter(params, query, this);
+		}
+
+		// ===== SAUVEGARDER L'ÉTAT ACTUEL =====
+		const oldComponents = [...this.components];
+		const oldRoute = this.currentRoute;
+		const oldParams = { ...this.currentParams };
+		const oldQuery = { ...this.currentQuery };
+
+		// ✅ CRUCIAL : ARRÊTER LES ANCIENNES CAMÉRAS AVANT DE CRÉER LES NOUVELLES
 		oldComponents.forEach(comp => {
-			// Vérifier si c'est un composant caméra
 			if (comp.constructor.name === 'FloatedCamera' || 
 				comp.constructor.name === 'Camera' || 
+				comp.constructor.name === 'Video' || 
 				comp.constructor.name === 'QRCodeReader') {
-				// Arrêter le stream vidéo
 				if (comp.stopCamera && typeof comp.stopCamera === 'function') {
 					comp.stopCamera();
 				}
+				// Destroy le composant pour être sûr
+				if (comp.destroy && typeof comp.destroy === 'function') {
+					comp.destroy();
+				}
 			}
 		});
-		
-		// ✅ NOUVEAU : Vérifier si la nouvelle route contient des composants caméra
-		const hasCamera = this.components.some(comp => 
-			comp.constructor.name === 'FloatedCamera' || 
-			comp.constructor.name === 'Camera' || 
-			comp.constructor.name === 'QRCodeReader'
-		);
-		
-		// Si la nouvelle route N'A PAS de caméra, nettoyer toutes les vidéos après 3 secondes
-		if (!hasCamera) {
-			console.log('⏰ Nettoyage des vidéos programmé dans 3 secondes...');
-			setTimeout(() => {
-				const videos = document.querySelectorAll('video');
-				videos.forEach(v => v.remove());
-			}, 3000);
+
+		// ✅ Nettoyer toutes les vidéos orphelines AVANT de créer les nouveaux composants
+		const allVideos = document.querySelectorAll('video');
+		allVideos.forEach(v => v.remove());
+
+		// ===== METTRE À JOUR L'ÉTAT =====
+		this.currentRoute = pathname;
+		this.currentParams = params;
+		this.currentQuery = query;
+
+		// ===== GÉRER L'HISTORIQUE =====
+		if (!replace) {
+			this.historyIndex++;
+			this.history = this.history.slice(0, this.historyIndex);
+			this.history.push({ path, params, query, state });
+			window.history.pushState({ route: path, params, query, state }, '', path);
 		} else {
-			console.log('📹 Route avec caméra détectée, pas de nettoyage automatique');
+			this.history[this.historyIndex] = { path, params, query, state };
+			window.history.replaceState({ route: path, params, query, state }, '', path);
 		}
-		
-    }
+
+		// ===== CRÉER LES NOUVEAUX COMPOSANTS =====
+		this.components = [];
+		if (typeof route.component === 'function') {
+			route.component(this, params, query);
+		}
+
+		// ===== LANCER L'ANIMATION DE TRANSITION =====
+		if (animate && !this.transitionState.isTransitioning) {
+			const transitionType = transition || route.transition || 'slide';
+			this.startTransition(oldComponents, this.components, transitionType, direction);
+		}
+
+		// ===== LIFECYCLE: APRÈS ÊTRE ENTRÉ DANS LA NOUVELLE ROUTE =====
+		if (route.afterEnter) {
+			route.afterEnter(params, query, this);
+		}
+
+		if (currentRouteData?.afterLeave) {
+			if (animate && this.transitionState.isTransitioning) {
+				setTimeout(() => {
+					currentRouteData.afterLeave(oldParams, oldQuery, this);
+				}, this.transitionState.duration || 300);
+			} else {
+				currentRouteData.afterLeave(oldParams, oldQuery, this);
+			}
+		}
+
+		this._maxScrollDirty = true;
+	}
 
     /**
      * Démarre une animation de transition
