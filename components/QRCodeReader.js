@@ -354,15 +354,18 @@ class QRCodeReader extends Component {
 
     // Fond semi-transparent autour
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    
+  
     // Haut
-    ctx.fillRect(this.x, this.y, this.width, centerY - halfSize);
+    ctx.fillRect(this.x, this.y, this.width, centerY - this.y - halfSize);
+  
     // Bas
-    ctx.fillRect(this.x, centerY + halfSize, this.width, this.height - (centerY + halfSize));
+    ctx.fillRect(this.x, centerY + halfSize, this.width, this.y + this.height - (centerY + halfSize));
+  
     // Gauche
-    ctx.fillRect(this.x, centerY - halfSize, centerX - halfSize, frameSize);
+    ctx.fillRect(this.x, centerY - halfSize, centerX - this.x - halfSize, frameSize);
+  
     // Droite
-    ctx.fillRect(centerX + halfSize, centerY - halfSize, centerX - halfSize, frameSize);
+    ctx.fillRect(centerX + halfSize, centerY - halfSize, this.x + this.width - (centerX + halfSize), frameSize);
 
     // Cadre de scan
     ctx.strokeStyle = this.scannerFrameColor;
@@ -371,7 +374,7 @@ class QRCodeReader extends Component {
 
     // Coins décoratifs
     const cornerSize = 20;
-    
+  
     // Coin haut gauche
     ctx.beginPath();
     ctx.moveTo(centerX - halfSize, centerY - halfSize + cornerSize);
