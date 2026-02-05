@@ -1,4 +1,4 @@
-import Component from '../core/Component.js';
+  import Component from '../core/Component.js';
 
 /**
  * Bouton cliquable avec variantes Material et Cupertino
@@ -185,27 +185,25 @@ class Button extends Component {
    */
   animateRipple() {
     const animate = () => {
-      let hasActiveRipples = false;
-      
       for (let ripple of this.ripples) {
-        if (ripple.radius < ripple.maxRadius) {
-          ripple.radius += ripple.maxRadius / 15;
-          hasActiveRipples = true;
-        }
-        
-        if (ripple.radius >= ripple.maxRadius * 0.5) {
-          ripple.opacity -= 0.05;
-        }
+        ripple.radius += ripple.maxRadius / 15;
+        ripple.opacity -= 0.05; // diminue progressivement
       }
-      
+
+      // Supprime les ripples complètement invisibles
       this.ripples = this.ripples.filter(r => r.opacity > 0);
-      
-	  
-      if (hasActiveRipples) {
+
+      // Redessine le bouton après mise à jour (important!)
+      if (this.framework && this.framework.redraw) {
+        this.framework.redraw();
+      }
+
+      // Tant qu'il reste des ripples visibles, continue l'animation
+      if (this.ripples.length > 0) {
         requestAnimationFrame(animate);
       }
     };
-    
+
     animate();
   }
 
