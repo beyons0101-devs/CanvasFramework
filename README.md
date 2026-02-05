@@ -1,84 +1,61 @@
  <img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/feae14e9-8d68-41f9-9e33-e444f1a6f360" />
 
-> **A Flutter-like rendering engine for WebView-based apps, written in JavaScript.**
 
-Canvas UI Engine is a **high-performance UI framework** that renders everything using **Canvas 2D or WebGL**, without relying on HTML, CSS, or the DOM.
+# Canvas UI Engine (UI engine inspired by Flutter, built for the Web)
 
-It is designed for **mobile apps**, **embedded systems**, and **offline-first environments**, running seamlessly inside **Capacitor / Cordova WebViews**.
-
----
-
-## 🚀 TL;DR
-
-- 🚫 No DOM, no HTML, no CSS  
-- 🎨 Canvas 2D with automatic WebGL acceleration for text rendering
-- 🧱 Flutter-inspired layout & rendering model  
-- ⚡ Deterministic UI & predictable performance  
-- 📱 Perfect for Capacitor / mobile WebView apps  
+> **Canvas-based UI Engine for Mobile & Embedded Apps**  
+> A high-performance UI engine rendered with Canvas/WebGL, running inside a WebView runtime (Capacitor / Cordova), without DOM, HTML or CSS.
 
 ---
 
-## 🤔 Why Canvas UI Engine?
-
-Traditional web frameworks rely on:
-- the DOM
-- CSS layout engines
-- browser-specific behavior
-
-Canvas UI Engine takes a **radically different approach**:
-
-> **You describe a UI tree → the engine renders pixels.**
-
-### Benefits
-
-- ✅ Same UI everywhere  
-- ✅ No CSS bugs or layout shifts  
-- ✅ Stable FPS even with complex UIs  
-- ✅ Perfect for mobile & embedded WebViews  
-
----
-
-## 🧠 Core Concepts
-
-- Scene Graph (Flutter-like)
-- Custom layout engine
-- Dirty region rendering
-- Canvas 2D + WebGL fallback
-- Single rendering pipeline
-- Declarative DSL + imperative control
-
----
-
-## 📦 Installation
-
-bash
+# Installation
 - npm install canvasframework
 - npm install -D vite
-- npm create pixi.js@latest
 
----
 # add in package.json
 "scripts": {
   "dev": "vite",
   "build": "vite build"
 }
 
+# Configure webpack and babel
+
+```
+// webpack.config.cjs
+const path = require('path');
+
+module.exports = {
+  entry: './src/main.js',
+  output: {
+    filename: 'bundle.js',
+    path: path.resolve(__dirname, 'www')
+  },
+  mode: 'development',
+  module: {
+    rules: [
+      {
+        test: /\.js$/,
+        exclude: /node_modules/,
+        use: 'babel-loader'
+      }
+    ]
+  },
+  devServer: {
+    static: './www',
+    hot: true
+  }
+};
+```
+
+```
+webpack.config.js → webpack.config.cjs
+```
+
+---
+
 # launch
 npm run dev
 ---
-
-## Devtools
-You can use a new devtools system like this
-
-```
-const app = new CanvasFramework('app-canvas', { 
-  showFps: false,
-  debug: false
-});
-
-app.useWebGL = true;
-app.enableDevTools(true);
-```
 
 ## 🚀 Overview
 
@@ -120,29 +97,12 @@ The WebView is used **only as a JavaScript runtime**, not as a UI system.
 > **The WebView is only a runtime shell.**  
 > **The UI is fully controlled by the engine (no DOM, no HTML layout).**
 
-## Who should use this?
-
-✅ Flutter developers wanting a WebView-based runtime
-✅ Game / engine developers
-✅ Embedded & kiosk app developers
-✅ Apps where UI determinism matters more than HTML compatibility
-
-❌ Not for websites
-❌ Not for SEO
-❌ Not for quick CRUD dashboards
 
 ### Key point
 
 > **The browser does not manage UI.  
 > The engine does.**
 
-✅ Core Concepts
-✅ Scene Graph (like Flutter / game engines)
-✅ Custom layout system (Row, Column, Stack, Positioned)
-✅ Dirty-region rendering
-✅ Canvas 2D with WebGL fallback
-✅ Single rendering pipeline
-✅ Imperative or Declarative (DSL) UI
 ---
 
 ## 🎨 Rendering
@@ -194,26 +154,6 @@ Example components:
 
 This allows smoother UI and better separation of concerns.
 
----
-
-## Hello Word Exemple 
-
-```
-import { CanvasFramework, ui } from 'canvasframework';
-
-const app = new CanvasFramework('app-canvas');
-
-app.route('/', (fw) => {
-  ui.app(
-    ui.Column({ padding: 16 }, [
-      ui.Text({ text: 'Hello World', fontSize: 24 }),
-      ui.Button({ text: 'Click me' })
-    ])
-  ).mount(fw);
-});
-
-app.navigate('/');
-```
 ---
 
 ## 🔌 Native capabilities
