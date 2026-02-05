@@ -206,6 +206,7 @@ class CanvasFramework {
 
         this.width = window.innerWidth;
         this.height = window.innerHeight;
+
         this.dpr = window.devicePixelRatio || 1;
 
         // ✅ OPTIMISATION OPTION 2: Configuration des optimisations
@@ -2384,29 +2385,39 @@ class CanvasFramework {
     }*/
 
     handleResize() {
-        if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
+		if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
 
-        this.resizeTimeout = setTimeout(() => {
-            this.width = window.innerWidth;
-            this.height = window.innerHeight;
-            this.setupCanvas();
+		this.resizeTimeout = setTimeout(() => {
+			const newWidth  = window.innerWidth;
+			const newHeight = window.innerHeight;
 
-            // Mettre à jour les dimensions dans le Worker
-            this.scrollWorker.postMessage({
-                type: 'UPDATE_DIMENSIONS',
-                payload: {
-                    height: this.height
-                }
-            });
+			// Règle clé : on resize UNIQUEMENT si la largeur a vraiment changé
+			// (rotation, split-screen, vraie fenêtre changée)
+			// À la fermeture du clavier → largeur = identique → on skip
+			if (Math.abs(newWidth - this.width) <= 8) {   // tolérance pixels (scrollbar, bordures...)
+				console.log("[resize] Largeur identique → probablement clavier (open/close) → ignoré");
+				return;
+			}
 
-            for (const comp of this.components) {
-                if (comp._resize) {
-                    comp._resize(this.width, this.height);
-                }
-            }
-            this.updateScrollWorkerComponents();
-        }, 150);
-    }
+			console.log("[resize] Largeur changée → vrai resize");
+
+			this.width  = newWidth;
+			this.height = newHeight;
+
+			this.setupCanvas();  // ← change canvas.width/height + DPR + style
+			this._maxScrollDirty = true;
+
+			if (this.scrollWorker) {
+				this.scrollWorker.postMessage({
+					type: 'UPDATE_DIMENSIONS',
+					payload: { height: this.height }
+				});
+			}
+
+			this.components.forEach(comp => comp.onResize?.(this.width, this.height));
+
+		}, 100);  // 80–120 ms
+	}
 
     /*handleResize() {
         if (this.resizeTimeout) clearTimeout(this.resizeTimeout); // ✅ AJOUTER
