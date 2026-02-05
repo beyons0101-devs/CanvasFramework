@@ -20,6 +20,9 @@
 
 # Configure webpack and babel
 
+add your app.js in src folder and index.html in www folder 
+in index.html add script src bundle.js
+
 ```
 // webpack.config.cjs
 const path = require('path');
