@@ -1,16 +1,18 @@
 import Component from '../core/Component.js';
+
 /**
  * Container avec système de layout et effet d'élévation
  * @class
  * @extends Component
  * @property {Component[]} children - Enfants
  * @property {number} padding - Padding interne
- * @property {number} gap - Espacement entre enfants
+ * @property {number} gap - Espacement constant entre enfants
  * @property {string} direction - Direction ('column' ou 'row')
- * @property {string} align - Alignement ('start', 'center', 'end')
+ * @property {string} align - Alignement ('start', 'center', 'end', 'stretch')
  * @property {string} bgColor - Couleur de fond
  * @property {number} borderRadius - Rayon des coins
  * @property {number} elevation - Niveau d'élévation (ombres)
+ * @property {boolean} autoLayout - Active le layout automatique
  */
 class Card extends Component {
   /**
@@ -18,12 +20,13 @@ class Card extends Component {
    * @param {CanvasFramework} framework - Framework parent
    * @param {Object} [options={}] - Options de configuration
    * @param {number} [options.padding=0] - Padding interne
-   * @param {number} [options.gap=0] - Espacement entre enfants
+   * @param {number} [options.gap=0] - Espacement constant entre enfants
    * @param {string} [options.direction='column'] - Direction
    * @param {string} [options.align='start'] - Alignement
    * @param {string} [options.bgColor='transparent'] - Couleur de fond
    * @param {number} [options.borderRadius=0] - Rayon des coins
    * @param {number} [options.elevation=0] - Niveau d'élévation (0-5)
+   * @param {boolean} [options.autoLayout=true] - Active le layout automatique
    */
   constructor(framework, options = {}) {
     super(framework, options);
@@ -34,18 +37,62 @@ class Card extends Component {
     this.align = options.align || 'start';
     this.bgColor = options.bgColor || 'transparent';
     this.borderRadius = options.borderRadius || 0;
-    this.elevation = options.elevation || 0; // Nouvelle propriété
+    this.elevation = options.elevation || 0;
+    this.autoLayout = options.autoLayout !== undefined ? options.autoLayout : true;
+    
+    // Stocker les positions relatives des enfants
+    this.childPositions = new Map();
   }
 
   /**
-   * Ajoute un enfant
+   * Ajoute un enfant (position relative convertie en absolue)
    * @param {Component} child - Composant enfant
    * @returns {Component} L'enfant ajouté
    */
   add(child) {
     this.children.push(child);
-    this.layout();
+    
+    // CONVERTIR les positions relatives en positions absolues
+    // Les x, y passés sont relatifs à la Card
+    child.x = this.x + child.x;
+    child.y = this.y + child.y;
+    
+    // Stocker la position relative originale
+    this.childPositions.set(child, { 
+      x: child.x - this.x, 
+      y: child.y - this.y 
+    });
+    
+    // Si autoLayout est activé, organiser automatiquement
+    if (this.autoLayout) {
+      this.layout();
+    }
+    
     return child;
+  }
+
+  /**
+   * Supprime un enfant
+   * @param {Component} child - Composant enfant à supprimer
+   * @returns {boolean} True si l'enfant a été supprimé
+   */
+  remove(child) {
+    const index = this.children.indexOf(child);
+    if (index > -1) {
+      this.children.splice(index, 1);
+      this.childPositions.delete(child);
+      if (this.autoLayout) this.layout();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Supprime tous les enfants
+   */
+  clear() {
+    this.children = [];
+    this.childPositions.clear();
   }
 
   /**
@@ -53,30 +100,122 @@ class Card extends Component {
    * @private
    */
   layout() {
-    let currentX = this.x + this.padding;
-    let currentY = this.y + this.padding;
-    
-    for (let child of this.children) {
-      if (this.direction === 'column') {
-        child.x = currentX;
-        child.y = currentY;
+    if (this.children.length === 0 || !this.autoLayout) return;
+
+    if (this.direction === 'column') {
+      let currentY = this.padding;
+      
+      for (let i = 0; i < this.children.length; i++) {
+        const child = this.children[i];
+        
+        // Calculer la position X selon l'alignement
+        let childX = this.padding;
         if (this.align === 'center') {
-          child.x = this.x + (this.width - child.width) / 2;
+          childX = (this.width - child.width) / 2;
         } else if (this.align === 'end') {
-          child.x = this.x + this.width - child.width - this.padding;
+          childX = this.width - child.width - this.padding;
+        } else if (this.align === 'stretch') {
+          childX = this.padding;
+          child.width = this.width - (this.padding * 2);
         }
-        currentY += child.height + this.gap;
-      } else {
-        child.x = currentX;
-        child.y = currentY;
+        
+        // Positionner l'enfant RELATIVEMENT à la Card
+        child.x = this.x + childX;
+        child.y = this.y + currentY;
+        
+        // Stocker la position relative
+        this.childPositions.set(child, { x: childX, y: currentY });
+        
+        // Mettre à jour la position Y pour l'enfant suivant
+        currentY += child.height;
+        
+        // Ajouter le gap seulement si ce n'est pas le dernier enfant
+        if (i < this.children.length - 1) {
+          currentY += this.gap;
+        }
+      }
+    } else {
+      // Direction 'row'
+      let currentX = this.padding;
+      
+      for (let i = 0; i < this.children.length; i++) {
+        const child = this.children[i];
+        
+        // Calculer la position Y selon l'alignement
+        let childY = this.padding;
         if (this.align === 'center') {
-          child.y = this.y + (this.height - child.height) / 2;
+          childY = (this.height - child.height) / 2;
         } else if (this.align === 'end') {
-          child.y = this.y + this.height - child.height - this.padding;
+          childY = this.height - child.height - this.padding;
+        } else if (this.align === 'stretch') {
+          childY = this.padding;
+          child.height = this.height - (this.padding * 2);
         }
-        currentX += child.width + this.gap;
+        
+        // Positionner l'enfant RELATIVEMENT à la Card
+        child.x = this.x + currentX;
+        child.y = this.y + childY;
+        
+        // Stocker la position relative
+        this.childPositions.set(child, { x: currentX, y: childY });
+        
+        // Mettre à jour la position X pour l'enfant suivant
+        currentX += child.width;
+        
+        // Ajouter le gap seulement si ce n'est pas le dernier enfant
+        if (i < this.children.length - 1) {
+          currentX += this.gap;
+        }
       }
     }
+  }
+
+  /**
+   * Met à jour la position de la carte et ajuste les enfants
+   * @param {number} x - Nouvelle position X
+   * @param {number} y - Nouvelle position Y
+   */
+  setPosition(x, y) {
+    const deltaX = x - this.x;
+    const deltaY = y - this.y;
+    
+    super.setPosition(x, y);
+    
+    // Déplacer tous les enfants avec la carte
+    for (let child of this.children) {
+      child.x += deltaX;
+      child.y += deltaY;
+    }
+  }
+
+  /**
+   * Définit la position d'un enfant dans le système de coordonnées de la Card
+   * @param {Component} child - L'enfant à positionner
+   * @param {number} relativeX - Position X relative à la Card
+   * @param {number} relativeY - Position Y relative à la Card
+   */
+  setChildPosition(child, relativeX, relativeY) {
+    if (this.children.includes(child)) {
+      child.x = this.x + relativeX;
+      child.y = this.y + relativeY;
+      this.childPositions.set(child, { x: relativeX, y: relativeY });
+    }
+  }
+
+  /**
+   * Active/désactive le layout automatique
+   * @param {boolean} enabled - True pour activer le layout automatique
+   */
+  setAutoLayout(enabled) {
+    this.autoLayout = enabled;
+    if (enabled) this.layout();
+  }
+
+  /**
+   * Force un recalcul du layout
+   */
+  updateLayout() {
+    this.layout();
   }
 
   /**
@@ -87,12 +226,12 @@ class Card extends Component {
    */
   getShadowConfig(elevation) {
     const shadows = [
-      { blur: 0, offsetY: 0, color: 'transparent', spread: 0 }, // 0 - pas d'ombre
-      { blur: 2, offsetY: 1, color: 'rgba(0,0,0,0.12)', spread: 0 }, // 1 - léger
-      { blur: 3, offsetY: 1, color: 'rgba(0,0,0,0.14)', spread: 0 }, // 2 - léger
-      { blur: 4, offsetY: 2, color: 'rgba(0,0,0,0.16)', spread: 0 }, // 3 - moyen
-      { blur: 6, offsetY: 3, color: 'rgba(0,0,0,0.18)', spread: 0 }, // 4 - moyen
-      { blur: 8, offsetY: 4, color: 'rgba(0,0,0,0.20)', spread: 0 }, // 5 - fort
+      { blur: 0, offsetY: 0, color: 'transparent', spread: 0 },
+      { blur: 2, offsetY: 1, color: 'rgba(0,0,0,0.12)', spread: 0 },
+      { blur: 3, offsetY: 1, color: 'rgba(0,0,0,0.14)', spread: 0 },
+      { blur: 4, offsetY: 2, color: 'rgba(0,0,0,0.16)', spread: 0 },
+      { blur: 6, offsetY: 3, color: 'rgba(0,0,0,0.18)', spread: 0 },
+      { blur: 8, offsetY: 4, color: 'rgba(0,0,0,0.20)', spread: 0 },
     ];
     
     return shadows[Math.min(elevation, shadows.length - 1)];
@@ -108,16 +247,13 @@ class Card extends Component {
     
     const shadow = this.getShadowConfig(this.elevation);
     
-    // Sauvegarder l'état du contexte
     ctx.save();
     
-    // Configurer l'ombre
     ctx.shadowColor = shadow.color;
     ctx.shadowBlur = shadow.blur;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = shadow.offsetY;
     
-    // Dessiner un rectangle pour l'ombre
     if (this.borderRadius > 0) {
       ctx.beginPath();
       this.roundRect(ctx, this.x, this.y + shadow.offsetY, this.width, this.height, this.borderRadius);
@@ -174,6 +310,12 @@ class Card extends Component {
    * @private
    */
   roundRect(ctx, x, y, width, height, radius) {
+    if (radius === 0) {
+      ctx.rect(x, y, width, height);
+      return;
+    }
+    
+    ctx.beginPath();
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
     ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
@@ -183,6 +325,7 @@ class Card extends Component {
     ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.closePath();
   }
 
   /**
@@ -218,6 +361,121 @@ class Card extends Component {
    */
   lower() {
     this.setElevation(this.elevation - 1);
+  }
+
+  /**
+   * Définit l'espacement entre enfants
+   * @param {number} gap - Nouvel espacement
+   */
+  setGap(gap) {
+    this.gap = Math.max(0, gap);
+    if (this.autoLayout) this.layout();
+  }
+
+  /**
+   * Définit le padding
+   * @param {number} padding - Nouveau padding
+   */
+  setPadding(padding) {
+    this.padding = Math.max(0, padding);
+    if (this.autoLayout) this.layout();
+  }
+
+  /**
+   * Définit la direction du layout
+   * @param {string} direction - 'column' ou 'row'
+   */
+  setDirection(direction) {
+    if (direction === 'column' || direction === 'row') {
+      this.direction = direction;
+      if (this.autoLayout) this.layout();
+    }
+  }
+
+  /**
+   * Définit l'alignement
+   * @param {string} align - 'start', 'center', 'end' ou 'stretch'
+   */
+  setAlign(align) {
+    if (['start', 'center', 'end', 'stretch'].includes(align)) {
+      this.align = align;
+      if (this.autoLayout) this.layout();
+    }
+  }
+
+  /**
+   * Calcule la hauteur totale nécessaire pour contenir tous les enfants
+   * @returns {number} Hauteur totale nécessaire
+   */
+  getTotalHeight() {
+    if (this.children.length === 0) return 0;
+    
+    if (this.direction === 'column') {
+      const totalChildrenHeight = this.children.reduce((sum, child) => sum + child.height, 0);
+      const totalGapHeight = this.gap * Math.max(0, this.children.length - 1);
+      return totalChildrenHeight + totalGapHeight + (this.padding * 2);
+    }
+    return this.height;
+  }
+
+  /**
+   * Calcule la largeur totale nécessaire pour contenir tous les enfants
+   * @returns {number} Largeur totale nécessaire
+   */
+  getTotalWidth() {
+    if (this.children.length === 0) return 0;
+    
+    if (this.direction === 'row') {
+      const totalChildrenWidth = this.children.reduce((sum, child) => sum + child.width, 0);
+      const totalGapWidth = this.gap * Math.max(0, this.children.length - 1);
+      return totalChildrenWidth + totalGapWidth + (this.padding * 2);
+    }
+    return this.width;
+  }
+
+  /**
+   * Ajuste automatiquement la hauteur de la carte pour contenir tous les enfants
+   */
+  fitHeight() {
+    if (this.direction === 'column') {
+      this.height = this.getTotalHeight();
+    }
+  }
+
+  /**
+   * Ajuste automatiquement la largeur de la carte pour contenir tous les enfants
+   */
+  fitWidth() {
+    if (this.direction === 'row') {
+      this.width = this.getTotalWidth();
+    }
+  }
+
+  /**
+   * Ajuste automatiquement les dimensions de la carte pour contenir tous les enfants
+   */
+  fitSize() {
+    this.fitWidth();
+    this.fitHeight();
+  }
+
+  /**
+   * Met à jour les dimensions et relayout si autoLayout est activé
+   * @param {number} width - Nouvelle largeur
+   * @param {number} height - Nouvelle hauteur
+   */
+  setSize(width, height) {
+    super.setSize(width, height);
+    if (this.autoLayout) this.layout();
+  }
+
+  /**
+   * Obtient la position relative d'un enfant
+   * @param {Component} child - L'enfant
+   * @returns {Object|null} Position relative {x, y} ou null si non trouvé
+   */
+  getChildPosition(child) {
+    return this.childPositions.get(child) || null;
   }
 }
 
