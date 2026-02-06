@@ -1,7 +1,6 @@
 import Component from '../core/Component.js';
-
 /**
- * Carte avec système de layout, ombre et bordures arrondies
+ * Container avec système de layout et effet d'élévation
  * @class
  * @extends Component
  * @property {Component[]} children - Enfants
@@ -11,36 +10,31 @@ import Component from '../core/Component.js';
  * @property {string} align - Alignement ('start', 'center', 'end')
  * @property {string} bgColor - Couleur de fond
  * @property {number} borderRadius - Rayon des coins
- * @property {number} elevation - Élévation (ombre)
- * @property {boolean} clipContent - Clip le contenu aux bordures
+ * @property {number} elevation - Niveau d'élévation (ombres)
  */
 class Card extends Component {
   /**
    * Crée une instance de Card
    * @param {CanvasFramework} framework - Framework parent
    * @param {Object} [options={}] - Options de configuration
-   * @param {number} [options.padding=16] - Padding interne
+   * @param {number} [options.padding=0] - Padding interne
    * @param {number} [options.gap=0] - Espacement entre enfants
    * @param {string} [options.direction='column'] - Direction
    * @param {string} [options.align='start'] - Alignement
-   * @param {string} [options.bgColor='#FFFFFF'] - Couleur de fond
-   * @param {number} [options.borderRadius] - Rayon des coins (auto selon platform)
-   * @param {number} [options.elevation=2] - Élévation (ombre)
-   * @param {boolean} [options.clipContent=true] - Clip le contenu
+   * @param {string} [options.bgColor='transparent'] - Couleur de fond
+   * @param {number} [options.borderRadius=0] - Rayon des coins
+   * @param {number} [options.elevation=0] - Niveau d'élévation (0-5)
    */
   constructor(framework, options = {}) {
     super(framework, options);
     this.children = [];
-    this.padding = options.padding !== undefined ? options.padding : 16;
+    this.padding = options.padding || 0;
     this.gap = options.gap || 0;
-    this.direction = options.direction || 'column'; // 'column' ou 'row'
-    this.align = options.align || 'start'; // 'start', 'center', 'end'
-    this.bgColor = options.bgColor || '#FFFFFF';
-    this.borderRadius = options.borderRadius !== undefined 
-      ? options.borderRadius 
-      : (framework.platform === 'material' ? 4 : 12);
-    this.elevation = options.elevation !== undefined ? options.elevation : 2;
-    this.clipContent = options.clipContent !== false;
+    this.direction = options.direction || 'column';
+    this.align = options.align || 'start';
+    this.bgColor = options.bgColor || 'transparent';
+    this.borderRadius = options.borderRadius || 0;
+    this.elevation = options.elevation || 0; // Nouvelle propriété
   }
 
   /**
@@ -59,30 +53,82 @@ class Card extends Component {
    * @private
    */
   layout() {
-    let currentX = this.padding;
-    let currentY = this.padding;
+    let currentX = this.x + this.padding;
+    let currentY = this.y + this.padding;
     
     for (let child of this.children) {
       if (this.direction === 'column') {
         child.x = currentX;
         child.y = currentY;
         if (this.align === 'center') {
-          child.x = (this.width - child.width) / 2;
+          child.x = this.x + (this.width - child.width) / 2;
         } else if (this.align === 'end') {
-          child.x = this.width - child.width - this.padding;
+          child.x = this.x + this.width - child.width - this.padding;
         }
         currentY += child.height + this.gap;
       } else {
         child.x = currentX;
         child.y = currentY;
         if (this.align === 'center') {
-          child.y = (this.height - child.height) / 2;
+          child.y = this.y + (this.height - child.height) / 2;
         } else if (this.align === 'end') {
-          child.y = this.height - child.height - this.padding;
+          child.y = this.y + this.height - child.height - this.padding;
         }
         currentX += child.width + this.gap;
       }
     }
+  }
+
+  /**
+   * Génère les paramètres d'ombre selon le niveau d'élévation
+   * @param {number} elevation - Niveau d'élévation (0-5)
+   * @returns {Object} Configuration de l'ombre
+   * @private
+   */
+  getShadowConfig(elevation) {
+    const shadows = [
+      { blur: 0, offsetY: 0, color: 'transparent', spread: 0 }, // 0 - pas d'ombre
+      { blur: 2, offsetY: 1, color: 'rgba(0,0,0,0.12)', spread: 0 }, // 1 - léger
+      { blur: 3, offsetY: 1, color: 'rgba(0,0,0,0.14)', spread: 0 }, // 2 - léger
+      { blur: 4, offsetY: 2, color: 'rgba(0,0,0,0.16)', spread: 0 }, // 3 - moyen
+      { blur: 6, offsetY: 3, color: 'rgba(0,0,0,0.18)', spread: 0 }, // 4 - moyen
+      { blur: 8, offsetY: 4, color: 'rgba(0,0,0,0.20)', spread: 0 }, // 5 - fort
+    ];
+    
+    return shadows[Math.min(elevation, shadows.length - 1)];
+  }
+
+  /**
+   * Dessine l'effet d'ombre selon l'élévation
+   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
+   * @private
+   */
+  drawShadow(ctx) {
+    if (this.elevation <= 0) return;
+    
+    const shadow = this.getShadowConfig(this.elevation);
+    
+    // Sauvegarder l'état du contexte
+    ctx.save();
+    
+    // Configurer l'ombre
+    ctx.shadowColor = shadow.color;
+    ctx.shadowBlur = shadow.blur;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = shadow.offsetY;
+    
+    // Dessiner un rectangle pour l'ombre
+    if (this.borderRadius > 0) {
+      ctx.beginPath();
+      this.roundRect(ctx, this.x, this.y + shadow.offsetY, this.width, this.height, this.borderRadius);
+      ctx.fillStyle = this.bgColor === 'transparent' ? 'white' : this.bgColor;
+      ctx.fill();
+    } else {
+      ctx.fillStyle = this.bgColor === 'transparent' ? 'white' : this.bgColor;
+      ctx.fillRect(this.x, this.y + shadow.offsetY, this.width, this.height);
+    }
+    
+    ctx.restore();
   }
 
   /**
@@ -92,14 +138,12 @@ class Card extends Component {
   draw(ctx) {
     ctx.save();
     
-    // Ombre (elevation)
+    // Dessiner l'ombre si elevation > 0
     if (this.elevation > 0) {
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
-      ctx.shadowBlur = this.elevation * 3;
-      ctx.shadowOffsetY = this.elevation;
+      this.drawShadow(ctx);
     }
     
-    // Background
+    // Dessiner le fond de la carte
     if (this.bgColor !== 'transparent') {
       ctx.fillStyle = this.bgColor;
       if (this.borderRadius > 0) {
@@ -111,29 +155,11 @@ class Card extends Component {
       }
     }
     
-    // Réinitialiser l'ombre
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    
-    // Clipping (optionnel)
-    if (this.clipContent && this.borderRadius > 0) {
-      ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
-      ctx.clip();
-    }
-    
-    // Children - coordonnées relatives à la Card
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    
+    // Dessiner les enfants
     for (let child of this.children) {
-      if (child.visible) {
-        child.draw(ctx);
-      }
+      if (child.visible) child.draw(ctx);
     }
     
-    ctx.restore();
     ctx.restore();
   }
 
@@ -148,7 +174,6 @@ class Card extends Component {
    * @private
    */
   roundRect(ctx, x, y, width, height, radius) {
-    ctx.beginPath();
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
     ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
@@ -158,20 +183,41 @@ class Card extends Component {
     ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
   }
 
   /**
    * Vérifie si un point est dans les limites
    * @param {number} x - Coordonnée X
    * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans la carte
+   * @returns {boolean} True si le point est dans la vue
    */
   isPointInside(x, y) {
     return x >= this.x && 
            x <= this.x + this.width && 
            y >= this.y && 
            y <= this.y + this.height;
+  }
+
+  /**
+   * Définit le niveau d'élévation
+   * @param {number} elevation - Nouveau niveau d'élévation (0-5)
+   */
+  setElevation(elevation) {
+    this.elevation = Math.max(0, Math.min(elevation, 5));
+  }
+
+  /**
+   * Augmente le niveau d'élévation
+   */
+  raise() {
+    this.setElevation(this.elevation + 1);
+  }
+
+  /**
+   * Réduit le niveau d'élévation
+   */
+  lower() {
+    this.setElevation(this.elevation - 1);
   }
 }
 
