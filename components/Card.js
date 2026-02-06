@@ -1,15 +1,18 @@
 import Component from '../core/Component.js';
+
 /**
- * Carte avec ombre et contenu
+ * Carte avec système de layout, ombre et bordures arrondies
  * @class
  * @extends Component
- * @property {Component[]} children - Enfants de la carte
+ * @property {Component[]} children - Enfants
  * @property {number} padding - Padding interne
+ * @property {number} gap - Espacement entre enfants
+ * @property {string} direction - Direction ('column' ou 'row')
+ * @property {string} align - Alignement ('start', 'center', 'end')
  * @property {string} bgColor - Couleur de fond
- * @property {number} elevation - Élévation (ombre)
  * @property {number} borderRadius - Rayon des coins
- * @property {boolean} clipContent - Clip le contenu
- * @property {boolean} clickableChildren - Active les clics sur les enfants
+ * @property {number} elevation - Élévation (ombre)
+ * @property {boolean} clipContent - Clip le contenu aux bordures
  */
 class Card extends Component {
   /**
@@ -17,38 +20,69 @@ class Card extends Component {
    * @param {CanvasFramework} framework - Framework parent
    * @param {Object} [options={}] - Options de configuration
    * @param {number} [options.padding=16] - Padding interne
+   * @param {number} [options.gap=0] - Espacement entre enfants
+   * @param {string} [options.direction='column'] - Direction
+   * @param {string} [options.align='start'] - Alignement
    * @param {string} [options.bgColor='#FFFFFF'] - Couleur de fond
-   * @param {number} [options.elevation=2] - Élévation (ombre)
    * @param {number} [options.borderRadius] - Rayon des coins (auto selon platform)
+   * @param {number} [options.elevation=2] - Élévation (ombre)
    * @param {boolean} [options.clipContent=true] - Clip le contenu
-   * @param {boolean} [options.clickableChildren=true] - Active les clics enfants
    */
   constructor(framework, options = {}) {
     super(framework, options);
     this.children = [];
-    this.padding = options.padding || 16;
+    this.padding = options.padding !== undefined ? options.padding : 16;
+    this.gap = options.gap || 0;
+    this.direction = options.direction || 'column'; // 'column' ou 'row'
+    this.align = options.align || 'start'; // 'start', 'center', 'end'
     this.bgColor = options.bgColor || '#FFFFFF';
-    this.elevation = options.elevation || 2;
-    this.borderRadius = options.borderRadius || (framework.platform === 'material' ? 4 : 12);
+    this.borderRadius = options.borderRadius !== undefined 
+      ? options.borderRadius 
+      : (framework.platform === 'material' ? 4 : 12);
+    this.elevation = options.elevation !== undefined ? options.elevation : 2;
     this.clipContent = options.clipContent !== false;
-    this.clickableChildren = options.clickableChildren !== false; // NOUVEAU: activer/désactiver les enfants cliquables
   }
 
   /**
-   * Ajoute un enfant à la carte
+   * Ajoute un enfant
    * @param {Component} child - Composant enfant
    * @returns {Component} L'enfant ajouté
    */
   add(child) {
-    // Ajuster les coordonnées de l'enfant pour qu'elles soient relatives à la Card
-    child.x = child.x || 0;
-    child.y = child.y || 0;
     this.children.push(child);
-    
-    // Marquer l'enfant comme appartenant à cette Card
-    child.parentCard = this;
-    
+    this.layout();
     return child;
+  }
+
+  /**
+   * Organise les enfants selon le layout
+   * @private
+   */
+  layout() {
+    let currentX = this.padding;
+    let currentY = this.padding;
+    
+    for (let child of this.children) {
+      if (this.direction === 'column') {
+        child.x = currentX;
+        child.y = currentY;
+        if (this.align === 'center') {
+          child.x = (this.width - child.width) / 2;
+        } else if (this.align === 'end') {
+          child.x = this.width - child.width - this.padding;
+        }
+        currentY += child.height + this.gap;
+      } else {
+        child.x = currentX;
+        child.y = currentY;
+        if (this.align === 'center') {
+          child.y = (this.height - child.height) / 2;
+        } else if (this.align === 'end') {
+          child.y = this.height - child.height - this.padding;
+        }
+        currentX += child.width + this.gap;
+      }
+    }
   }
 
   /**
@@ -58,7 +92,7 @@ class Card extends Component {
   draw(ctx) {
     ctx.save();
     
-    // Ombre
+    // Ombre (elevation)
     if (this.elevation > 0) {
       ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
       ctx.shadowBlur = this.elevation * 3;
@@ -66,81 +100,41 @@ class Card extends Component {
     }
     
     // Background
-    ctx.fillStyle = this.bgColor;
-    ctx.beginPath();
-    this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
-    ctx.fill();
+    if (this.bgColor !== 'transparent') {
+      ctx.fillStyle = this.bgColor;
+      if (this.borderRadius > 0) {
+        ctx.beginPath();
+        this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
+        ctx.fill();
+      } else {
+        ctx.fillRect(this.x, this.y, this.width, this.height);
+      }
+    }
     
+    // Réinitialiser l'ombre
     ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
     
-    // Clipping pour empêcher le contenu de déborder
-    if (this.clipContent) {
+    // Clipping (optionnel)
+    if (this.clipContent && this.borderRadius > 0) {
       ctx.beginPath();
       this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
       ctx.clip();
     }
     
-    // Children - dessinés relativement à la Card
+    // Children - coordonnées relatives à la Card
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    
     for (let child of this.children) {
       if (child.visible) {
-        // Sauvegarder les coordonnées originales
-        const originalX = child.x;
-        const originalY = child.y;
-        
-        // Ajuster les coordonnées pour être relatives à la Card
-        child.x = this.x + this.padding + originalX;
-        child.y = this.y + this.padding + originalY;
-        
-        // Dessiner l'enfant
         child.draw(ctx);
-        
-        // Restaurer les coordonnées originales
-        child.x = originalX;
-        child.y = originalY;
       }
     }
     
     ctx.restore();
-  }
-
-  /**
-   * Vérifie les clics sur les enfants
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si un enfant a été cliqué
-   * @private
-   */
-  checkChildClick(x, y) {
-    // Ajuster y avec le scrollOffset
-    const adjustedY = y - this.framework.scrollOffset;
-    
-    // Vérifier chaque enfant
-    for (let i = this.children.length - 1; i >= 0; i--) {
-      const child = this.children[i];
-      
-      // Calculer les coordonnées absolues de l'enfant
-      const childX = this.x + this.padding + child.x;
-      const childY = this.y + this.padding + child.y;
-      
-      // Vérifier si le clic est dans l'enfant
-      if (child.visible && 
-          adjustedY >= childY && 
-          adjustedY <= childY + child.height &&
-          x >= childX && 
-          x <= childX + child.width) {
-        
-        // Si l'enfant a un onClick ou onPress, le déclencher
-        if (child.onClick) {
-          child.onClick();
-          return true;
-        } else if (child.onPress) {
-          child.onPress(x, adjustedY);
-          return true;
-        }
-      }
-    }
-    
-    return false;
+    ctx.restore();
   }
 
   /**
@@ -166,7 +160,7 @@ class Card extends Component {
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
   }
-  
+
   /**
    * Vérifie si un point est dans les limites
    * @param {number} x - Coordonnée X
@@ -178,15 +172,6 @@ class Card extends Component {
            x <= this.x + this.width && 
            y >= this.y && 
            y <= this.y + this.height;
-  }
-  
-  /**
-   * Gère le clic sur la carte
-   * @private
-   */
-  onClick() {
-    // La Card elle-même peut avoir un onClick, mais on veut aussi vérifier les enfants
-    // Cette logique est gérée dans le CanvasFramework modifié ci-dessous
   }
 }
 
