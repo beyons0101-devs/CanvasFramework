@@ -10,7 +10,7 @@
 
 # Installation
 - npm install canvasframework
-- npm install -D vite
+- npm install vite --save-dev
 
 # add in package.json
 "scripts": {
@@ -18,40 +18,79 @@
   "build": "vite build"
 }
 
-# Configure webpack and babel
+# Configure with Vite and Capacitor or cordova
 
-add your app.js in src folder and index.html in www folder 
-in index.html add script src bundle.js
+- add your app.js in src folder "src/main.js"
+- add your index.html in the root of your project
+- add this to your index.html <script type="module" src="/src/main.js"></script>
+- you didn't add canvas or other html tags to your index.html
 
 ```
-// webpack.config.cjs
-const path = require('path');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My App</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
 
-module.exports = {
-  entry: './src/main.js',
-  output: {
-    filename: 'bundle.js',
-    path: path.resolve(__dirname, 'www')
-  },
-  mode: 'development',
-  module: {
-    rules: [
-      {
-        test: /\.js$/,
-        exclude: /node_modules/,
-        use: 'babel-loader'
-      }
-    ]
-  },
-  devServer: {
-    static: './www',
-    hot: true
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
+      overflow: hidden;
+      background-color: #f5f5f5;
+    }
+  </style>
+</head>
+<body>
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
+```
+
+- Add vite.config.js to the root of the project
+
+```
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  base: './', // IMPORTANT pour Android
+  build: {
+    outDir: 'www',
+    emptyOutDir: true
   }
+});
+```
+
+- add this to our package.json
+
+```
+"scripts": {
+  "dev": "vite",
+  "build": "vite build"
+}
+```
+
+- into your capacitor.config.ts specify this webDir
+
+```
+const config = {
+  appId: 'com.test.app',
+  appName: 'CanvasApp',
+  webDir: 'www'
 };
 ```
 
+- And finally you can build your app
+
 ```
-webpack.config.js → webpack.config.cjs
+npm run build
+npx cap sync
+npx cap run android
 ```
 
 ---
