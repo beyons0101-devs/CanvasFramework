@@ -5,7 +5,7 @@ import Input from '../components/Input.js';
 import Slider from '../components/Slider.js';
 import Text from '../components/Text.js';
 import View from '../components/View.js';
-import Card from '../components/Card.js';
+import Cards from '../components/Cards.js';
 import FAB from '../components/FAB.js';
 import SpeedDialFAB from '../components/SpeedDialFAB.js';
 import MorphingFAB from '../components/MorphingFAB.js';
@@ -82,7 +82,7 @@ const Components = {
   Slider,
   Text,
   View,
-  Card,
+  Cards,
   FAB,
   SpeedDialFAB,
   MorphingFAB,
@@ -100,7 +100,6 @@ const Components = {
   AppBar,
   SliverAppBar,
   Chip,
-  FloatedCamera,
   Camera,
   Stepper,
   Accordion,
@@ -119,6 +118,7 @@ const Components = {
   ContextMenu,
   Checkbox,
   Toast,
+  FloatedCamera,
   NumberInput,
   TextField,
   SelectDialog,
@@ -263,6 +263,5 @@ ui.stack = ui.stack || ((props = {}, children = []) =>
 
 ui.grid = ui.grid || ((props = {}, children = []) =>
   ui._create('Grid', props, Array.isArray(children) ? children : [children]));
-
 
 export default ui;

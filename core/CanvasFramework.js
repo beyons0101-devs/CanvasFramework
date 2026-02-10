@@ -4,7 +4,8 @@ import Input from '../components/Input.js';
 import Slider from '../components/Slider.js';
 import Text from '../components/Text.js';
 import View from '../components/View.js';
-import Card from '../components/Card.js';
+//import Card from '../components/Card.js';
+import Cards from '../components/Cards.js';
 import FAB from '../components/FAB.js';
 import SpeedDialFAB from '../components/SpeedDialFAB.js';
 import MorphingFAB from '../components/MorphingFAB.js';
@@ -2233,7 +2234,7 @@ class CanvasFramework {
             if (comp.visible) {
                 const adjustedY = isFixedComponent(comp) ? y : y - this.scrollOffset;
 
-                if (comp instanceof Card && comp.clickableChildren && comp.children && comp.children.length > 0) {
+               /* if (comp instanceof Card && comp.clickableChildren && comp.children && comp.children.length > 0) {
                     if (comp.isPointInside(x, adjustedY)) {
                         const cardAdjustedY = adjustedY - comp.y - comp.padding;
                         const cardAdjustedX = x - comp.x - comp.padding;
@@ -2300,7 +2301,7 @@ class CanvasFramework {
                             }
                         }
                     }
-                }
+                }*/
 
                 if (comp.isPointInside(x, adjustedY)) {
                     switch (eventType) {
