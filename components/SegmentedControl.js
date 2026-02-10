@@ -30,6 +30,8 @@ class SegmentedControl extends Component {
     this.pressedIndex = null;
     this._isAnimating = false;
     
+	this.backgroundColor = options.backgroundColor || '#6200EE';
+	this.textColor = options.color || '#ffffff';
   }
 
   /**
@@ -209,8 +211,8 @@ class SegmentedControl extends Component {
       if (this.platform === 'material') {
         // Material Design
         if (this.selectedIndex === i) {
-          backgroundColor = '#6200EE'; // Violet Material
-          textColor = '#FFFFFF';
+          backgroundColor = this.backgroundColor; // Violet Material
+          textColor = this.textColor;
         } else {
           backgroundColor = '#E0E0E0'; // Gris clair
           textColor = '#000000';
@@ -223,8 +225,8 @@ class SegmentedControl extends Component {
       } else {
         // iOS/Cupertino
         if (this.selectedIndex === i) {
-          backgroundColor = '#007AFF'; // Bleu iOS
-          textColor = '#FFFFFF';
+          backgroundColor = this.backgroundColor; // Bleu iOS
+          textColor = this.textColor;
         } else {
           backgroundColor = '#F0F0F0'; // Gris très clair iOS
           textColor = '#000000';
@@ -232,7 +234,7 @@ class SegmentedControl extends Component {
         
         // Si pressé
         if (this.pressedIndex === i) {
-          backgroundColor = this.selectedIndex === i ? '#0056CC' : '#D9D9D9';
+          backgroundColor = this.backgroundColor;
         }
       }
       
