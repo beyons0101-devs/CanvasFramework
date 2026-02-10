@@ -1,314 +1,291 @@
 import Component from '../core/Component.js';
 
 /**
- * Zone de téléchargement de fichiers avec drag & drop
+ * Zone de téléchargement de fichiers (Material & Cupertino) - Bouton visuel seulement
  * @class
  * @extends Component
- * @property {string} label - Texte affiché
- * @property {string} sublabel - Sous-texte
- * @property {string} accept - Types de fichiers acceptés
- * @property {boolean} multiple - Accepter plusieurs fichiers
- * @property {number} maxSize - Taille max en bytes
- * @property {Array} files - Fichiers sélectionnés
- * @property {boolean} isDragOver - État de survol
- * @property {string} borderColor - Couleur de bordure
- * @property {string} bgColor - Couleur de fond
- * @property {string} iconColor - Couleur de l'icône
- * @property {Function} onFilesSelected - Callback
- * @property {Function} onError - Callback d'erreur
  */
 class FileUpload extends Component {
-  /**
-   * Crée une instance de FileUpload
-   * @param {CanvasFramework} framework - Framework parent
-   * @param {Object} [options={}] - Options de configuration
-   * @param {string} [options.label='Drag & drop files here'] - Label
-   * @param {string} [options.sublabel='or click to browse'] - Sublabel
-   * @param {string} [options.accept='*'] - Types acceptés
-   * @param {boolean} [options.multiple=true] - Multiple fichiers
-   * @param {number} [options.maxSize=10485760] - Taille max (10MB)
-   * @param {Function} [options.onFilesSelected] - Callback
-   * @param {Function} [options.onError] - Callback erreur
-   */
   constructor(framework, options = {}) {
     super(framework, options);
-    
-    this.label = options.label || 'Drag & drop files here';
-    this.sublabel = options.sublabel || 'or click to browse';
+
+    this.label = options.label || 'Cliquez pour choisir un fichier';
     this.accept = options.accept || '*';
     this.multiple = options.multiple !== false;
-    this.maxSize = options.maxSize || 10485760; // 10MB
-    this.files = [];
-    this.isDragOver = false;
-    
-    const platform = framework.platform;
-    
+    this.files = options.files || [];
+    this.platform = framework.platform;
+
     // Styles selon la plateforme
-    if (platform === 'material') {
-      this.borderColor = '#6200EE';
-      this.bgColor = 'rgba(98, 0, 238, 0.05)';
-      this.iconColor = '#6200EE';
-      this.borderRadius = 4;
-      this.borderWidth = 2;
+    if (this.platform === 'material') {
+      // DESIGN MATERIAL AVEC RIPPLE PRONONCÉ
+      this.bgColor = options.bgColor || 'rgba(98, 0, 238, 0.04)';
+      this.borderColor = options.borderColor || '#6200EE';
+      this.iconColor = options.iconColor || '#6200EE';
+      this.borderRadius = options.borderRadius || 8;
+      this.borderWidth = options.borderWidth || 1.5;
+      this.borderStyle = 'dashed';
+      this.height = options.height || 90;
+      this.rippleColor = 'rgba(98, 0, 238, 0.3)'; // Ripple plus visible
+      this.elevation = 1;
     } else {
-      this.borderColor = '#007AFF';
-      this.bgColor = 'rgba(0, 122, 255, 0.05)';
-      this.iconColor = '#007AFF';
-      this.borderRadius = 12;
-      this.borderWidth = 2;
+      // DESIGN CUPERTINO
+      this.bgColor = options.bgColor || '#F2F2F7';
+      this.borderColor = options.borderColor || '#C6C6C8';
+      this.iconColor = options.iconColor || '#007AFF';
+      this.borderRadius = 14;
+      this.borderWidth = 0;
+      this.height = options.height || 80;
+      this.borderStyle = 'solid';
     }
     
+    this.width = options.width || 300;
+
+    // Ripple effect Material - variables d'animation
+    this.ripples = [];
+
+    this.onClickCallback = options.onClick || null;
     this.onFilesSelected = options.onFilesSelected || null;
-    this.onError = options.onError || null;
-    
-    // Créer un input file caché
-    this.createFileInput();
-  }
 
-  /**
-   * Crée l'input file HTML caché
-   * @private
-   */
-  createFileInput() {
-    this.fileInput = document.createElement('input');
-    this.fileInput.type = 'file';
-    this.fileInput.accept = this.accept;
-    this.fileInput.multiple = this.multiple;
-    this.fileInput.style.display = 'none';
-    document.body.appendChild(this.fileInput);
-    
-    this.fileInput.addEventListener('change', (e) => {
-      this.handleFiles(Array.from(e.target.files));
-    });
-  }
-
-  /**
-   * Gère les fichiers sélectionnés
-   * @param {Array} fileList - Liste des fichiers
-   * @private
-   */
-  handleFiles(fileList) {
-    const validFiles = [];
-    
-    for (let file of fileList) {
-      // Vérifier la taille
-      if (file.size > this.maxSize) {
-        if (this.onError) {
-          this.onError({
-            type: 'size',
-            message: `${file.name} exceeds max size of ${this.formatBytes(this.maxSize)}`,
-            file: file
-          });
-        }
-        continue;
-      }
-      
-      // Vérifier le type si spécifié
-      if (this.accept !== '*') {
-        const acceptedTypes = this.accept.split(',').map(t => t.trim());
-        const fileType = file.type;
-        const fileExt = '.' + file.name.split('.').pop();
-        
-        const isAccepted = acceptedTypes.some(type => {
-          if (type.startsWith('.')) {
-            return fileExt === type;
-          } else if (type.endsWith('/*')) {
-            return fileType.startsWith(type.replace('/*', ''));
-          } else {
-            return fileType === type;
-          }
-        });
-        
-        if (!isAccepted) {
-          if (this.onError) {
-            this.onError({
-              type: 'type',
-              message: `${file.name} is not an accepted file type`,
-              file: file
-            });
-          }
-          continue;
-        }
-      }
-      
-      validFiles.push(file);
+    if (options.onFilesSelected && !options.onClickCallback) {
+      this.onClickCallback = options.onFilesSelected;
     }
     
-    if (validFiles.length > 0) {
-      this.files = validFiles;
-      if (this.onFilesSelected) {
-        this.onFilesSelected(validFiles);
+    // Bind
+    this.onPress = this.handlePress.bind(this);
+  }
+
+  /**
+   * Gère la pression sur le bouton
+   */
+  handlePress(x, y) {
+    if (this.platform === 'material') {
+      const adjustedY = y - (this.framework.scrollOffset || 0);
+      this.ripples.push({
+        x: x - this.x,
+        y: adjustedY - this.y,
+        radius: 0,
+        maxRadius: Math.max(this.width, this.height) * 1.5,
+        opacity: 1
+      });
+      this.animateRipple();
+    }
+  }
+
+  /**
+   * Anime les effets ripple
+   */
+  animateRipple() {
+    const animate = () => {
+      for (let ripple of this.ripples) {
+        ripple.radius += ripple.maxRadius / 15;
+        ripple.opacity -= 0.05;
       }
+
+      this.ripples = this.ripples.filter(r => r.opacity > 0);
+
+      if (this.framework && this.framework.redraw) {
+        this.framework.redraw();
+      }
+
+      if (this.ripples.length > 0) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    animate();
+  }
+
+  handleRelease() {
+    this.pressed = false;
+    
+    if (this.onClickCallback) {
+      this.onClickCallback(this.files);
     }
     
-    // Reset input
-    this.fileInput.value = '';
+    if (this.framework && this.framework.redraw) {
+      this.framework.redraw();
+    }
   }
 
-  /**
-   * Formate les bytes en format lisible
-   * @param {number} bytes - Nombre de bytes
-   * @returns {string} Taille formatée
-   * @private
-   */
-  formatBytes(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  setFiles(files) {
+    this.files = files;
+    if (this.framework && this.framework.redraw) {
+      this.framework.redraw();
+    }
   }
 
-  /**
-   * Dessine le composant
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   */
+  addFile(file) {
+    this.files.push(file);
+    if (this.framework && this.framework.redraw) {
+      this.framework.redraw();
+    }
+  }
+
+  clearFiles() {
+    this.files = [];
+    if (this.framework && this.framework.redraw) {
+      this.framework.redraw();
+    }
+  }
+
   draw(ctx) {
     ctx.save();
+
+    const radius = this.borderRadius;
     
-    // Fond
-    ctx.fillStyle = this.isDragOver || this.pressed ? 
-      this.lightenColor(this.bgColor) : this.bgColor;
+    // OMBRE POUR MATERIAL
+    if (this.platform === 'material' && this.elevation > 0 && !this.pressed) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+      ctx.shadowBlur = this.elevation * 4;
+      ctx.shadowOffsetY = this.elevation;
+    }
+
+    // Background
+    let currentBgColor = this.bgColor;
+    if (this.pressed && this.platform === 'cupertino') {
+      currentBgColor = '#E5E5EA';
+    }
+
+    ctx.fillStyle = currentBgColor;
     ctx.beginPath();
-    this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
+    this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
     ctx.fill();
-    
-    // Bordure en pointillés
-    ctx.strokeStyle = this.borderColor;
-    ctx.lineWidth = this.borderWidth;
-    ctx.setLineDash([8, 8]);
-    ctx.beginPath();
-    this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    
-    // Icône de fichier (simple)
-    const iconSize = 40;
-    const iconX = this.x + this.width / 2 - iconSize / 2;
-    const iconY = this.y + this.height / 2 - 40;
-    
+
+    // Reset shadow
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+
+    // BORDURE
+    if (this.borderWidth > 0) {
+      ctx.strokeStyle = this.borderColor;
+      ctx.lineWidth = this.borderWidth;
+      
+      if (this.platform === 'material' && this.borderStyle === 'dashed') {
+        ctx.setLineDash([6, 4]);
+      } else {
+        ctx.setLineDash([]);
+      }
+      
+      ctx.beginPath();
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // RIPPLE EFFECT (Material)
+    if (this.platform === 'material') {
+      ctx.save();
+      ctx.beginPath();
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      ctx.clip();
+      
+      for (let ripple of this.ripples) {
+        ctx.globalAlpha = ripple.opacity;
+        ctx.fillStyle = this.rippleColor;
+        ctx.beginPath();
+        ctx.arc(this.x + ripple.x, this.y + ripple.y, ripple.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      ctx.restore();
+    }
+
+    // ICÔNE
+    const iconSize = this.platform === 'material' ? 32 : 28;
+    const iconX = this.x + this.width / 2;
+    const iconY = this.y + this.height / 2 - (this.files.length > 0 ? 15 : 8);
+
     ctx.strokeStyle = this.iconColor;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = this.platform === 'material' ? 1.8 : 2;
+    ctx.lineCap = 'round';
     
-    // Document
+    // Ligne horizontale
     ctx.beginPath();
-    ctx.moveTo(iconX, iconY);
-    ctx.lineTo(iconX + iconSize * 0.7, iconY);
-    ctx.lineTo(iconX + iconSize, iconY + iconSize * 0.3);
-    ctx.lineTo(iconX + iconSize, iconY + iconSize);
-    ctx.lineTo(iconX, iconY + iconSize);
-    ctx.closePath();
+    ctx.moveTo(iconX - iconSize / 3, iconY);
+    ctx.lineTo(iconX + iconSize / 3, iconY);
     ctx.stroke();
     
-    // Coin plié
+    // Ligne verticale
     ctx.beginPath();
-    ctx.moveTo(iconX + iconSize * 0.7, iconY);
-    ctx.lineTo(iconX + iconSize * 0.7, iconY + iconSize * 0.3);
-    ctx.lineTo(iconX + iconSize, iconY + iconSize * 0.3);
+    ctx.moveTo(iconX, iconY - iconSize / 3);
+    ctx.lineTo(iconX, iconY + iconSize / 3);
     ctx.stroke();
-    
-    // Flèche montante
-    const arrowX = iconX + iconSize / 2;
-    const arrowY = iconY + iconSize * 0.5;
-    const arrowSize = 12;
-    
-    ctx.beginPath();
-    ctx.moveTo(arrowX, arrowY - arrowSize);
-    ctx.lineTo(arrowX, arrowY + arrowSize);
-    ctx.stroke();
-    
-    ctx.beginPath();
-    ctx.moveTo(arrowX - arrowSize / 2, arrowY - arrowSize / 2);
-    ctx.lineTo(arrowX, arrowY - arrowSize);
-    ctx.lineTo(arrowX + arrowSize / 2, arrowY - arrowSize / 2);
-    ctx.stroke();
-    
-    // Texte
-    ctx.fillStyle = '#000000';
-    ctx.font = '16px -apple-system, BlinkMacSystemFont, Roboto, sans-serif';
+
+    // LABEL
+    ctx.fillStyle = this.platform === 'material' ? '#5F6368' : '#3C3C43';
+    ctx.font = this.platform === 'material' 
+      ? '500 13px Roboto, sans-serif'
+      : '15px -apple-system, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(this.label, this.x + this.width / 2, this.y + this.height / 2 + 30);
     
-    ctx.fillStyle = '#666666';
-    ctx.font = '14px -apple-system, BlinkMacSystemFont, Roboto, sans-serif';
-    ctx.fillText(this.sublabel, this.x + this.width / 2, this.y + this.height / 2 + 52);
-    
-    // Afficher les fichiers sélectionnés
+    const labelY = iconY + iconSize / 2 + 12;
+    ctx.fillText(this.label, this.x + this.width / 2, labelY);
+
+    // FICHIERS SÉLECTIONNÉS
     if (this.files.length > 0) {
-      ctx.fillStyle = this.borderColor;
-      ctx.font = '12px -apple-system, BlinkMacSystemFont, Roboto, sans-serif';
-      const fileText = this.files.length === 1 ? 
-        this.files[0].name : 
-        `${this.files.length} files selected`;
-      ctx.fillText(fileText, this.x + this.width / 2, this.y + this.height - 20);
+      ctx.fillStyle = this.platform === 'material' ? '#6200EE' : '#007AFF';
+      ctx.font = this.platform === 'material' 
+        ? '400 11px Roboto, sans-serif'
+        : '13px -apple-system, sans-serif';
+      
+      let fileText = '';
+      if (this.files.length === 1) {
+        fileText = this.truncateText(this.files[0].name, 25);
+      } else {
+        fileText = `${this.files.length} fichier${this.files.length > 1 ? 's' : ''}`;
+      }
+      
+      const fileIconY = this.y + this.height - 18;
+      
+      if (this.platform === 'material') {
+        ctx.fillStyle = '#6200EE';
+        ctx.beginPath();
+        ctx.roundRect(this.x + this.width / 2 - 40, fileIconY - 2, 8, 10, 1);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(this.x + this.width / 2 - 32, fileIconY - 2);
+        ctx.lineTo(this.x + this.width / 2 - 32, fileIconY + 8);
+        ctx.lineTo(this.x + this.width / 2 - 40, fileIconY + 8);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.fillText(fileText, this.x + this.width / 2 + 5, fileIconY + 3);
+      } else {
+        ctx.fillText(`📎 ${fileText}`, this.x + this.width / 2, fileIconY);
+      }
     }
-    
+
     ctx.restore();
   }
 
-  /**
-   * Dessine un rectangle avec coins arrondis
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   * @param {number} x - Position X
-   * @param {number} y - Position Y
-   * @param {number} width - Largeur
-   * @param {number} height - Hauteur
-   * @param {number} radius - Rayon des coins
-   * @private
-   */
-  roundRect(ctx, x, y, width, height, radius) {
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-  }
-
-  /**
-   * Éclaircit une couleur
-   * @param {string} color - Couleur
-   * @returns {string} Couleur éclaircie
-   * @private
-   */
-  lightenColor(color) {
-    if (color.startsWith('rgba')) {
-      return color.replace(/[\d.]+\)$/g, '0.15)');
+  roundRect(ctx, x, y, w, h, r) {
+    if (r > 0) {
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+    } else {
+      ctx.rect(x, y, w, h);
     }
-    return color;
   }
 
-  /**
-   * Vérifie si un point est dans les limites
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans le composant
-   */
+  truncateText(text, maxLength) {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 3) + '...';
+  }
+
   isPointInside(x, y) {
     return x >= this.x && 
            x <= this.x + this.width && 
            y >= this.y && 
            y <= this.y + this.height;
-  }
-  
-  /**
-   * Override du onClick pour ouvrir le file picker
-   */
-  onClick() {
-    this.fileInput.click();
-  }
-
-  /**
-   * Nettoie le composant
-   */
-  destroy() {
-    if (this.fileInput && this.fileInput.parentNode) {
-      this.fileInput.parentNode.removeChild(this.fileInput);
-    }
   }
 }
 

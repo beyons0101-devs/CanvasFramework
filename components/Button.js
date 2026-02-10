@@ -1,4 +1,4 @@
-  import Component from '../core/Component.js';
+import Component from '../core/Component.js';
 
 /**
  * Bouton cliquable avec variantes Material et Cupertino
