@@ -1,150 +1,205 @@
 import Component from '../core/Component.js';
 
 /**
- * Bouton radio pour les sélections uniques
+ * RadioButton Material You & Cupertino
  * @class
  * @extends Component
- * @property {string} group - Groupe de boutons radio
- * @property {boolean} checked - État sélectionné
- * @property {string} label - Texte du label
- * @property {string} platform - Plateforme
- * @property {number} circleSize - Taille du cercle
- * @property {number} circleRadius - Rayon du cercle
- * @property {Function} onChange - Callback au changement
  */
 class RadioButton extends Component {
-  /**
-   * Crée une instance de RadioButton
-   * @param {CanvasFramework} framework - Framework parent
-   * @param {Object} [options={}] - Options de configuration
-   * @param {string} [options.group='default'] - Groupe de boutons
-   * @param {boolean} [options.checked=false] - État initial
-   * @param {string} [options.label=''] - Texte du label
-   * @param {Function} [options.onChange] - Callback au changement
-   */
   constructor(framework, options = {}) {
     super(framework, options);
+
     this.group = options.group || 'default';
     this.checked = options.checked || false;
     this.label = options.label || '';
-	this.labelColor = options.labelColor || '#000000'; // Nouvelle propriété
+    this.labelColor = options.labelColor || (framework.platform === 'material' ? '#1F1F1F' : '#000000');
     this.platform = framework.platform;
-    this.circleSize = 24; // Taille du cercle
-    this.circleRadius = 10; // Rayon du cercle
+
+    // Cercle
+    this.circleSize = 24;           // Taille du bouton
+    this.circleRadius = 12;         // Rayon du cercle extérieur
+    this.innerRadius = this.circleRadius * 0.5; // Cercle intérieur proportionnel
+
+    // Animation feedback
+    this.tapAlpha = 0;              // Pour iOS
+    this.ripple = null;             // Pour Material
+    this.rippleSpeed = 0.15;
+
     this.onChange = options.onChange;
-    
-    // Calculer la largeur totale incluant le label
-    this.totalWidth = this.label ? this.circleSize + 8 + this.getTextWidth(this.label) : this.circleSize;
-    this.width = this.totalWidth; // Mettre à jour la largeur totale
-    this.height = this.circleSize; // Garder la même hauteur
-    
-    // Définir onClick
+
+    // Calcul largeur totale avec label
+    this.width = this.label ? this.circleSize + 8 + this.getTextWidth(this.label) : this.circleSize;
+    this.height = this.circleSize;
+
     this.onClick = this.handleClick.bind(this);
+	this.selectionProgress = this.checked ? 1 : 0; // 0 = non sélectionné, 1 = sélectionné
+	this.animSpeed = 0.2; // vitesse animation
   }
-  
-  /**
-   * Calcule la largeur du texte
-   * @param {string} text - Texte à mesurer
-   * @returns {number} Largeur du texte
-   * @private
-   */
+
   getTextWidth(text) {
-    // Utiliser le contexte temporaire pour mesurer le texte
     const ctx = this.framework.ctx;
     ctx.save();
-    ctx.font = '16px -apple-system, sans-serif';
+    ctx.font = this.platform === 'material' ? '16px Roboto' : '16px -apple-system';
     const width = ctx.measureText(text).width;
     ctx.restore();
     return width;
   }
 
-  /**
-   * Gère le clic sur le bouton radio
-   * @private
-   */
-  handleClick() {
-    // Décocher les autres du même groupe
+  handleClick(x, y) {
+    // Décocher les autres du groupe
     for (let comp of this.framework.components) {
       if (comp instanceof RadioButton && comp.group === this.group && comp !== this) {
         comp.checked = false;
       }
     }
     this.checked = true;
+
+    // Feedback
+    if (this.platform === 'material') {
+      this.ripple = { x: x - this.x, y: y - this.y, radius: 0, opacity: 0.3 };
+      this.animateRipple();
+    } else {
+      this.tapAlpha = 0.3;
+      this.animateTap();
+    }
+
     if (this.onChange) this.onChange(this.checked);
   }
 
-  /**
-   * Dessine le bouton radio
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   */
+  animateRipple() {
+    if (!this.ripple) return;
+    const step = () => {
+      if (!this.ripple) return;
+      this.ripple.radius += this.circleSize * this.rippleSpeed;
+      this.ripple.opacity -= 0.02;
+
+      if (this.ripple.opacity <= 0) this.ripple = null;
+      else requestAnimationFrame(step);
+      this.markDirty();
+    };
+    step();
+  }
+
+  animateTap() {
+    const step = () => {
+      this.tapAlpha -= 0.03;
+      if (this.tapAlpha <= 0) this.tapAlpha = 0;
+      else requestAnimationFrame(step);
+      this.markDirty();
+    };
+    step();
+  }
+
+  update() {
+    const target = this.checked ? 1 : 0;
+    this.selectionProgress += (target - this.selectionProgress) * this.animSpeed;
+    this.selectionProgress = Math.max(0, Math.min(1, this.selectionProgress));
+    
+    
+  }
+
   draw(ctx) {
     ctx.save();
-    
+
     const centerX = this.x + this.circleSize / 2;
     const centerY = this.y + this.circleSize / 2;
-    
+
     if (this.platform === 'material') {
-      // Outer circle
-      ctx.strokeStyle = this.checked ? '#6200EE' : '#666666';
+      // Cercle extérieur
+      ctx.strokeStyle = this.checked ? '#6750A4' : '#666666';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
       ctx.stroke();
-      
-      // Inner circle
+
+      // Cercle intérieur
       if (this.checked) {
-        ctx.fillStyle = '#6200EE';
+        ctx.fillStyle = '#6750A4';
         ctx.beginPath();
-        ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, this.innerRadius, 0, Math.PI * 2);
         ctx.fill();
       }
-     } else {
-      // Cupertino (iOS style)
+
+      // Ripple
+      if (this.ripple) {
+        ctx.globalAlpha = this.ripple.opacity;
+        ctx.fillStyle = '#6750A4';
+        ctx.beginPath();
+        ctx.arc(this.x + this.ripple.x, this.y + this.ripple.y, this.ripple.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    } else {
+      // Cupertino
       if (this.checked) {
-        // Cercle bleu rempli
         ctx.fillStyle = '#007AFF';
         ctx.beginPath();
         ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
         ctx.fill();
-        
-        // Point blanc au centre
+
+        // Point central blanc
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
-        ctx.arc(centerX, centerY, 4, 0, Math.PI * 2);
+        ctx.arc(centerX, centerY, this.innerRadius, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        // Cercle gris clair
         ctx.strokeStyle = '#D1D1D6';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
         ctx.stroke();
       }
+
+      // Tap overlay
+      if (this.tapAlpha > 0) {
+        ctx.fillStyle = `rgba(0,0,0,${this.tapAlpha})`;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, this.circleRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
-    
+	
+	this.update();
+
+	// Cercle intérieur avec animation Material
+	if (this.platform === 'material') {
+		if (this.selectionProgress > 0) {
+			ctx.fillStyle = '#6200EE';
+			ctx.beginPath();
+			ctx.arc(centerX, centerY, 5 * this.selectionProgress, 0, Math.PI*2);
+			ctx.fill();
+		}
+	}
+
+	// Cercle bleu pour Cupertino
+	if (this.platform === 'cupertino' && this.selectionProgress > 0) {
+		ctx.fillStyle = '#007AFF';
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, this.circleRadius * this.selectionProgress, 0, Math.PI*2);
+		ctx.fill();
+
+		// Point blanc au centre
+		ctx.fillStyle = '#FFFFFF';
+		ctx.beginPath();
+		ctx.arc(centerX, centerY, 4 * this.selectionProgress, 0, Math.PI*2);
+		ctx.fill();
+	}
+
     // Label
     if (this.label) {
-      ctx.fillStyle = this.labelColor; // Au lieu de '#000000'
-      ctx.font = '16px -apple-system, sans-serif';
+      ctx.fillStyle = this.labelColor;
+      ctx.font = this.platform === 'material' ? '16px Roboto' : '16px -apple-system';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(this.label, this.x + this.circleSize + 8, centerY);
     }
-    
+
     ctx.restore();
   }
-  
-  /**
-   * Vérifie si un point est dans les limites
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans le bouton
-   */
+
   isPointInside(x, y) {
-    return x >= this.x && 
-           x <= this.x + this.width && 
-           y >= this.y && 
-           y <= this.y + this.height;
+    return x >= this.x && x <= this.x + this.width &&
+           y >= this.y && y <= this.y + this.height;
   }
 }
 

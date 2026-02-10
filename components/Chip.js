@@ -1,192 +1,185 @@
 import Component from '../core/Component.js';
-/**
- * Chip (étiquette cliquable)
- * @class
- * @extends Component
- * @property {string} text - Texte
- * @property {string|null} icon - Icône
- * @property {boolean} closable - Peut être fermé
- * @property {string} platform - Plateforme
- * @property {string} bgColor - Couleur de fond
- * @property {string} textColor - Couleur du texte
- * @property {Function} onClose - Callback à la fermeture
- * @property {number} borderRadius - Rayon des coins
- * @property {Object|null} closeButtonRect - Rectangle du bouton fermer
- */
+
 class Chip extends Component {
-  /**
-   * Crée une instance de Chip
-   * @param {CanvasFramework} framework - Framework parent
-   * @param {Object} [options={}] - Options de configuration
-   * @param {string} [options.text=''] - Texte
-   * @param {string} [options.icon] - Icône
-   * @param {boolean} [options.closable=true] - Peut être fermé
-   * @param {string} [options.bgColor] - Couleur de fond (auto selon platform)
-   * @param {string} [options.textColor='#000000'] - Couleur du texte
-   * @param {Function} [options.onClose] - Callback à la fermeture
-   * @param {number} [options.height=32] - Hauteur
-   */
   constructor(framework, options = {}) {
     super(framework, options);
+
     this.text = options.text || '';
     this.icon = options.icon || null;
     this.closable = options.closable !== false;
-    this.platform = framework.platform;
-    this.bgColor = options.bgColor || (framework.platform === 'material' ? '#E0E0E0' : '#F0F0F0');
-    this.textColor = options.textColor || '#000000';
+    this.platform = framework.platform; // 'material' ou 'cupertino'
     this.onClose = options.onClose;
-    
-    // Calculer la largeur en fonction du contenu
+
+    // Couleurs par défaut selon platform
+    if (this.platform === 'material') {
+      this.bgColor = options.bgColor || '#E0E0E0';
+      this.textColor = options.textColor || '#1F1F1F';
+      this.rippleColor = options.rippleColor || 'rgba(0,0,0,0.12)';
+    } else { // Cupertino
+      this.bgColor = options.bgColor || 'rgba(242,242,247,0.95)';
+      this.textColor = options.textColor || '#000';
+    }
+
+    // Dimensions
     const ctx = framework.ctx;
     ctx.font = '14px -apple-system, sans-serif';
     const textWidth = ctx.measureText(this.text).width;
-    const iconWidth = this.icon ? 24 : 0;
+    const iconWidth = this.icon ? 20 : 0;
     const closeWidth = this.closable ? 24 : 0;
-    this.width = iconWidth + textWidth + closeWidth + 24; // padding
+    this.width = iconWidth + textWidth + closeWidth + 24;
     this.height = options.height || 32;
     this.borderRadius = this.height / 2;
-    
+
+    // Ripple pour Material
+    this.ripples = [];
+    this.pressed = false;
+
     this.closeButtonRect = null;
     this.onPress = this.handlePress.bind(this);
   }
 
-  /**
-   * Dessine le chip
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   */
+  addRipple(x, y) {
+    const ripple = {
+      x, y,
+      radius: 0,
+      maxRadius: Math.max(this.width, this.height) * 1.5,
+      opacity: 0.3
+    };
+    this.ripples.push(ripple);
+
+    const animate = () => {
+      let active = false;
+      for (let r of this.ripples) {
+        if (r.radius < r.maxRadius) {
+          r.radius += r.maxRadius / 15;
+          r.opacity -= 0.03;
+          active = true;
+        }
+      }
+      this.ripples = this.ripples.filter(r => r.opacity > 0);
+      if (active) requestAnimationFrame(animate);
+    };
+    animate();
+  }
+
   draw(ctx) {
     ctx.save();
-    
+
     // Background
-    ctx.fillStyle = this.pressed ? this.darkenColor(this.bgColor) : this.bgColor;
+    ctx.fillStyle = this.pressed && this.platform === 'cupertino'
+      ? this.darkenColor(this.bgColor, 0.1)
+      : this.bgColor;
+
     ctx.beginPath();
     this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
     ctx.fill();
-    
-    let currentX = this.x + 12;
-    
-    // Icône
+
+    let offsetX = this.x + 12;
+
+    // Icon
     if (this.icon) {
       ctx.font = '16px sans-serif';
+      ctx.fillStyle = this.textColor;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = this.textColor;
-      ctx.fillText(this.icon, currentX, this.y + this.height / 2);
-      currentX += 20;
+      ctx.fillText(this.icon, offsetX, this.y + this.height / 2);
+      offsetX += 20;
     }
-    
-    // Texte
-    ctx.font = '14px -apple-system, sans-serif';
+
+    // Text
+    ctx.font = this.platform === 'material'
+      ? '500 14px Roboto, sans-serif'
+      : '400 14px -apple-system';
     ctx.fillStyle = this.textColor;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(this.text, currentX, this.y + this.height / 2);
-    
-    // Bouton de fermeture
-    if (this.closable) {
-      const closeX = this.x + this.width - 20;
-      const closeY = this.y + this.height / 2;
-      
-      this.closeButtonRect = {
-        x: closeX - 8,
-        y: closeY - 8,
-        width: 16,
-        height: 16
-      };
-      
-      // Cercle du bouton (optionnel)
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+    ctx.fillText(this.text, offsetX, this.y + this.height / 2);
+
+    // Ripple (Material)
+    if (this.platform === 'material') {
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(closeX, closeY, 8, 0, Math.PI * 2);
+      this.roundRect(ctx, this.x, this.y, this.width, this.height, this.borderRadius);
+      ctx.clip();
+
+      this.ripples.forEach(r => {
+        ctx.globalAlpha = r.opacity;
+        ctx.fillStyle = this.rippleColor;
+        ctx.beginPath();
+        ctx.arc(this.x + r.x, this.y + r.y, r.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    // Close button
+    if (this.closable) {
+      const cx = this.x + this.width - 20;
+      const cy = this.y + this.height / 2;
+      this.closeButtonRect = { x: cx - 8, y: cy - 8, width: 16, height: 16 };
+
+      ctx.fillStyle = 'rgba(0,0,0,0.1)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
       ctx.fill();
-      
-      // Croix (X)
+
       ctx.strokeStyle = this.textColor;
       ctx.lineWidth = 1.5;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(closeX - 4, closeY - 4);
-      ctx.lineTo(closeX + 4, closeY + 4);
-      ctx.stroke();
-      
-      ctx.beginPath();
-      ctx.moveTo(closeX + 4, closeY - 4);
-      ctx.lineTo(closeX - 4, closeY + 4);
+      ctx.moveTo(cx - 4, cy - 4);
+      ctx.lineTo(cx + 4, cy + 4);
+      ctx.moveTo(cx + 4, cy - 4);
+      ctx.lineTo(cx - 4, cy + 4);
       ctx.stroke();
     }
-    
+
     ctx.restore();
   }
 
-  /**
-   * Gère la pression (clic)
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @private
-   */
   handlePress(x, y) {
-    const adjustedY = y - this.framework.scrollOffset;
-    
-    // Vérifier si on clique sur le bouton de fermeture
+    // Vérifie bouton close
     if (this.closable && this.closeButtonRect) {
-      if (x >= this.closeButtonRect.x && 
-          x <= this.closeButtonRect.x + this.closeButtonRect.width &&
-          adjustedY >= this.closeButtonRect.y && 
-          adjustedY <= this.closeButtonRect.y + this.closeButtonRect.height) {
-        if (this.onClose) this.onClose();
+      if (x >= this.closeButtonRect.x && x <= this.closeButtonRect.x + this.closeButtonRect.width &&
+          y >= this.closeButtonRect.y && y <= this.closeButtonRect.y + this.closeButtonRect.height) {
+        this.onClose?.();
         return;
       }
     }
-    
-    // Sinon, déclencher onClick normal
-    if (this.onClick) this.onClick();
+
+    // Ripple Material
+    if (this.platform === 'material') {
+      this.addRipple(x - this.x, y - this.y);
+    } else {
+      // Feedback press Cupertino
+      this.pressed = true;
+      setTimeout(() => { this.pressed = false; this.markDirty(); }, 100);
+    }
+
+    this.onClick?.();
   }
 
-  /**
-   * Dessine un rectangle avec coins arrondis
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   * @param {number} x - Position X
-   * @param {number} y - Position Y
-   * @param {number} width - Largeur
-   * @param {number} height - Hauteur
-   * @param {number} radius - Rayon des coins
-   * @private
-   */
-  roundRect(ctx, x, y, width, height, radius) {
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
+  roundRect(ctx, x, y, w, h, r) {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
   }
 
-  /**
-   * Assombrit une couleur
-   * @param {string} color - Couleur
-   * @returns {string} Couleur assombrie
-   * @private
-   */
-  darkenColor(color) {
-    // Utiliser la même méthode que Button
+  darkenColor(color, factor = 0.2) {
     if (color.startsWith('#')) {
-      const rgb = this.hexToRgb(color);
-      return `rgb(${Math.max(0, rgb.r - 20)}, ${Math.max(0, rgb.g - 20)}, ${Math.max(0, rgb.b - 20)})`;
+      const { r, g, b } = this.hexToRgb(color);
+      return `rgb(${Math.floor(r * (1 - factor))}, ${Math.floor(g * (1 - factor))}, ${Math.floor(b * (1 - factor))})`;
     }
     return color;
   }
 
-  /**
-   * Convertit une couleur hex en RGB
-   * @param {string} hex - Couleur hexadécimale
-   * @returns {{r: number, g: number, b: number}} Objet RGB
-   * @private
-   */
   hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? {
@@ -194,18 +187,6 @@ class Chip extends Component {
       g: parseInt(result[2], 16),
       b: parseInt(result[3], 16)
     } : { r: 0, g: 0, b: 0 };
-  }
-
-  /**
-   * Vérifie si un point est dans les limites
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @returns {boolean} True si le point est dans le chip
-   */
-  isPointInside(x, y) {
-    const adjustedY = y - this.framework.scrollOffset;
-    return x >= this.x && x <= this.x + this.width && 
-           adjustedY >= this.y && adjustedY <= this.y + this.height;
   }
 }
 
