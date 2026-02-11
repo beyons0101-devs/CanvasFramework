@@ -149,6 +149,213 @@ const FIXED_COMPONENT_TYPES = new Set([
  * @property {number} scrollVelocity - Vitesse de défilement
  * @property {number} scrollFriction - Friction du défilement
  */
+ 
+// ========================================
+// ✨ NOUVEAU: WorkerPool System
+// ========================================
+
+class WorkerPool {
+    constructor(options = {}) {
+        this.maxWorkers = options.maxWorkers || navigator.hardwareConcurrency || 4;
+        this.minWorkers = options.minWorkers || 1;
+        this.workerScript = options.workerScript || null;
+        
+        this.workers = [];
+        this.availableWorkers = [];
+        this.busyWorkers = new Set();
+        this.taskQueue = [];
+        this.taskIdCounter = 0;
+        this.pendingTasks = new Map();
+        
+        this._initializeMinWorkers();
+    }
+    
+    _initializeMinWorkers() {
+        for (let i = 0; i < this.minWorkers; i++) {
+            this._createWorker();
+        }
+    }
+    
+    _createWorker() {
+        const blob = new Blob([this._getDefaultWorkerCode()], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(blob);
+        const worker = new Worker(workerUrl);
+        const workerWrapper = this._wrapWorker(worker);
+        
+        this.workers.push(workerWrapper);
+        this.availableWorkers.push(workerWrapper);
+        URL.revokeObjectURL(workerUrl);
+        
+        return workerWrapper;
+    }
+    
+    _wrapWorker(worker) {
+        const wrapper = {
+            worker,
+            id: `worker-${Date.now()}-${Math.random()}`,
+            currentTask: null,
+            lastUsed: Date.now()
+        };
+        
+        worker.onmessage = (e) => this._handleWorkerMessage(wrapper, e);
+        worker.onerror = (e) => this._handleWorkerError(wrapper, e);
+        
+        return wrapper;
+    }
+    
+    _getDefaultWorkerCode() {
+        return `
+            let state = {};
+            
+            self.onmessage = async function(e) {
+                const { taskId, type, payload } = e.data;
+                
+                try {
+                    let result;
+                    
+                    switch(type) {
+                        case 'SET_STATE':
+                            state = payload;
+                            result = { state };
+                            break;
+                        
+                        case 'EXECUTE':
+                            const fn = new Function('state', 'args', payload.fnString);
+                            result = await fn(state, payload.args);
+                            break;
+                        
+                        case 'COMPUTE':
+                            result = payload.data;
+                            break;
+                        
+                        default:
+                            throw new Error('Unknown task type: ' + type);
+                    }
+                    
+                    self.postMessage({
+                        taskId,
+                        type: 'SUCCESS',
+                        result
+                    });
+                } catch (error) {
+                    self.postMessage({
+                        taskId,
+                        type: 'ERROR',
+                        error: error.message
+                    });
+                }
+            };
+        `;
+    }
+    
+    _handleWorkerMessage(wrapper, e) {
+        const { taskId, type, result, error } = e.data;
+        const task = this.pendingTasks.get(taskId);
+        
+        if (!task) return;
+        
+        this.pendingTasks.delete(taskId);
+        this.busyWorkers.delete(wrapper);
+        this.availableWorkers.push(wrapper);
+        wrapper.currentTask = null;
+        wrapper.lastUsed = Date.now();
+        
+        if (type === 'ERROR') {
+            task.reject(new Error(error));
+        } else {
+            task.resolve(result);
+        }
+        
+        this._processQueue();
+    }
+    
+    _handleWorkerError(wrapper, error) {
+        console.error('Worker error:', error);
+        
+        if (wrapper.currentTask) {
+            const task = this.pendingTasks.get(wrapper.currentTask);
+            if (task) {
+                task.reject(error);
+                this.pendingTasks.delete(wrapper.currentTask);
+            }
+        }
+        
+        this.busyWorkers.delete(wrapper);
+        const index = this.workers.indexOf(wrapper);
+        if (index > -1) {
+            this.workers.splice(index, 1);
+        }
+        
+        if (this.workers.length < this.minWorkers) {
+            this._createWorker();
+        }
+        
+        this._processQueue();
+    }
+    
+    execute(type, payload) {
+        return new Promise((resolve, reject) => {
+            const taskId = ++this.taskIdCounter;
+            
+            this.taskQueue.push({
+                taskId,
+                type,
+                payload,
+                resolve,
+                reject,
+                timestamp: Date.now()
+            });
+            
+            this._processQueue();
+        });
+    }
+    
+    _processQueue() {
+        while (this.taskQueue.length > 0 && this.availableWorkers.length > 0) {
+            const task = this.taskQueue.shift();
+            const wrapper = this.availableWorkers.shift();
+            
+            this.busyWorkers.add(wrapper);
+            wrapper.currentTask = task.taskId;
+            this.pendingTasks.set(task.taskId, task);
+            
+            wrapper.worker.postMessage({
+                taskId: task.taskId,
+                type: task.type,
+                payload: task.payload
+            });
+        }
+        
+        if (this.taskQueue.length > 0 && 
+            this.availableWorkers.length === 0 && 
+            this.workers.length < this.maxWorkers) {
+            this._createWorker();
+            this._processQueue();
+        }
+    }
+    
+    getStats() {
+        return {
+            totalWorkers: this.workers.length,
+            availableWorkers: this.availableWorkers.length,
+            busyWorkers: this.busyWorkers.size,
+            queuedTasks: this.taskQueue.length,
+            pendingTasks: this.pendingTasks.size
+        };
+    }
+    
+    terminateAll() {
+        this.workers.forEach(wrapper => {
+            wrapper.worker.terminate();
+        });
+        this.workers = [];
+        this.availableWorkers = [];
+        this.busyWorkers.clear();
+        this.taskQueue = [];
+        this.pendingTasks.clear();
+    }
+} 
+ 
 class CanvasFramework {
     /**
      * Crée une instance de CanvasFramework
@@ -316,21 +523,14 @@ class CanvasFramework {
             }
         });
 
-        // Logic Worker
-        this.logicWorker = this.createLogicWorker();
-        this.logicWorker.onmessage = this.handleLogicWorkerMessage.bind(this);
-        this.logicWorkerState = {};
-        this.logicWorker.postMessage({
-            type: 'SET_STATE',
-            payload: this.state
-        });
-
-        // Envoyer l'état initial au worker
-        this.logicWorker.postMessage({
-            type: 'SET_STATE',
-            payload: this.state
-        });
-
+		// WorkerPool pour le logic
+		this.workerPool = new WorkerPool({
+			maxWorkers: options.maxLogicWorkers || navigator.hardwareConcurrency || 4,
+			minWorkers: options.minLogicWorkers || 1
+		});
+		
+		this.logicWorkerState = {};
+	
         // Gestion des événements
         this.isDragging = false;
         this.lastTouchY = 0;
@@ -1483,37 +1683,7 @@ class CanvasFramework {
         return new Worker(URL.createObjectURL(blob));
     }
 
-    createLogicWorker() {
-        const workerCode = `
-      let state = {};
     
-      self.onmessage = async function(e) {
-        const { type, payload } = e.data;
-      
-        switch(type) {
-          case 'SET_STATE':
-            state = payload;
-            self.postMessage({ type: 'STATE_UPDATED', payload: state });
-            break;
-          
-          case 'EXECUTE':
-            try {
-              const fn = new Function('state', 'args', payload.fnString);
-              const result = await fn(state, payload.args);
-              self.postMessage({ type: 'EXECUTION_RESULT', payload: result });
-            } catch (err) {
-              self.postMessage({ type: 'EXECUTION_ERROR', payload: err.message });
-            }
-            break;
-        }
-      };
-    `;
-
-        const blob = new Blob([workerCode], {
-            type: 'application/javascript'
-        });
-        return new Worker(URL.createObjectURL(blob));
-    }
 
     // Set Theme dynamique
     setTheme(theme) {
@@ -1588,49 +1758,39 @@ class CanvasFramework {
         });
     }
 
-    // ------ Logic Worker --------
-    handleLogicWorkerMessage(e) {
-        const {
-            type,
-            payload
-        } = e.data;
-        switch (type) {
-            case 'STATE_UPDATED':
-                // Le worker a renvoyé le nouvel état global
-                this.logicWorkerState = payload;
-                break;
+    /**
+	 * Exécute une tâche dans le pool de workers
+	 * @param {string} fnString - Code de la fonction à exécuter
+	 * @param {*} args - Arguments pour la fonction
+	 * @returns {Promise} Résultat de l'exécution
+	 */
+	async executeTask(fnString, args = {}) {
+		return this.workerPool.execute('EXECUTE', {
+			fnString,
+			args
+		});
+	}
 
-            case 'EXECUTION_RESULT':
-                // Résultat d'une tâche spécifique envoyée au worker
-                if (this.onWorkerResult) this.onWorkerResult(payload);
-                break;
+	/**
+	 * Met à jour l'état dans tous les workers
+	 * @param {Object} newState - Nouvel état
+	 */
+	async updateWorkerState(newState) {
+		this.logicWorkerState = {
+			...this.logicWorkerState,
+			...newState
+		};
+		
+		return this.workerPool.execute('SET_STATE', this.logicWorkerState);
+	}
 
-            case 'EXECUTION_ERROR':
-                console.error('Logic Worker Error:', payload);
-                break;
-        }
-    }
-
-    runLogicTask(taskName, taskData) {
-        this.logicWorker.postMessage({
-            type: 'EXECUTE_TASK',
-            payload: {
-                taskName,
-                taskData
-            }
-        });
-    }
-
-    updateLogicWorkerState(newState) {
-        this.logicWorkerState = {
-            ...this.logicWorkerState,
-            ...newState
-        };
-        this.logicWorker.postMessage({
-            type: 'SET_STATE',
-            payload: this.logicWorkerState
-        });
-    }
+	/**
+	 * Obtient les statistiques du pool de workers
+	 * @returns {Object} Statistiques
+	 */
+	getWorkerPoolStats() {
+		return this.workerPool.getStats();
+	}
 
     detectPlatform() {
         const ua = navigator.userAgent.toLowerCase();
@@ -2985,12 +3145,14 @@ class CanvasFramework {
         if (this.scrollWorker) {
             this.scrollWorker.terminate();
         }
-        if (this.worker) {
+        
+		if (this.worker) {
             this.worker.terminate();
         }
-        if (this.logicWorker) {
-            this.logicWorker.terminate();
-        }
+		
+        if (this.workerPool) {
+			this.workerPool.terminateAll();
+		}
 
 		if (this.ctx && typeof this.ctx.destroy === 'function') {
 	        this.ctx.destroy();
