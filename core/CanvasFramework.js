@@ -59,6 +59,7 @@ import Camera from '../components/Camera.js';
 import FloatedCamera from '../components/FloatedCamera.js';
 import TimePicker from '../components/TimePicker.js';
 import QRCodeReader from '../components/QRCodeReader.js';
+import QRCodeGenerator from '../components/QRCodeGenerator.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -373,7 +374,12 @@ class CanvasFramework {
 		};
 		this._firstRenderDone = false;
 		this._startupStartTime = startTime;
+		// Dans le constructeur, après this.scrollFriction = 0.95;
+		this.scrollFriction = 0.95;
 
+		// ✅ AJOUTER
+		this.overscrollDistance = 0;
+		this.isOverscrollAnimating = false;
 		// ✅ Créer automatiquement le canvas
 		this.canvas = document.createElement('canvas');
 		this.canvas.id = canvasId || `canvas-${Date.now()}`;
@@ -619,6 +625,7 @@ class CanvasFramework {
         if (this.optimizations.useSpatialPartitioning) {
             this._initSpatialPartitioning();
         }
+
     }
 
 	/**
@@ -687,7 +694,7 @@ class CanvasFramework {
      * Crée le Worker pour le calcul du scroll
      */
     createScrollWorker() {
-        const workerCode = `
+		const workerCode = `
 			let state = {
 				scrollOffset: 0,
 				scrollVelocity: 0,
@@ -696,7 +703,10 @@ class CanvasFramework {
 				maxScroll: 0,
 				height: 0,
 				lastTouchY: 0,
-				components: []
+				components: [],
+				overscrollDistance: 0,
+				maxOverscroll: 150,  // ✅ Limite maximale
+				overscrollResistance: 0.3
 			};
 
 			const FIXED_COMPONENT_TYPES = [
@@ -707,13 +717,11 @@ class CanvasFramework {
 
 			const calculateMaxScroll = () => {
 				let maxY = 0;
-				
 				for (const comp of state.components) {
 					if (FIXED_COMPONENT_TYPES.includes(comp.type) || !comp.visible) continue;
 					const bottom = comp.y + comp.height;
 					if (bottom > maxY) maxY = bottom;
 				}
-				
 				return Math.max(0, maxY - state.height + 50);
 			};
 
@@ -721,7 +729,29 @@ class CanvasFramework {
 				if (Math.abs(state.scrollVelocity) > 0.1 && !state.isDragging) {
 					state.scrollOffset += state.scrollVelocity;
 					state.maxScroll = calculateMaxScroll();
-					state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+					
+					// ✅ CORRIGER: Limiter l'overscroll pendant l'inertie
+					if (state.scrollOffset > 0) {
+						// Limiter à maxOverscroll
+						if (state.scrollOffset > state.maxOverscroll) {
+							state.scrollOffset = state.maxOverscroll;
+							state.scrollVelocity = 0;
+						}
+						state.overscrollDistance = state.scrollOffset;
+						state.scrollVelocity *= 0.85;
+					} else if (state.scrollOffset < -state.maxScroll) {
+						const excess = Math.abs(state.scrollOffset + state.maxScroll);
+						// Limiter à maxOverscroll
+						if (excess > state.maxOverscroll) {
+							state.scrollOffset = -state.maxScroll - state.maxOverscroll;
+							state.scrollVelocity = 0;
+						}
+						state.overscrollDistance = state.scrollOffset + state.maxScroll;
+						state.scrollVelocity *= 0.85;
+					} else {
+						state.overscrollDistance = 0;
+					}
+					
 					state.scrollVelocity *= state.scrollFriction;
 				} else {
 					state.scrollVelocity = 0;
@@ -730,20 +760,82 @@ class CanvasFramework {
 				return {
 					scrollOffset: state.scrollOffset,
 					scrollVelocity: state.scrollVelocity,
-					maxScroll: state.maxScroll
+					maxScroll: state.maxScroll,
+					overscrollDistance: state.overscrollDistance
 				};
 			};
 
 			const handleTouchMove = (deltaY) => {
 				if (state.isDragging) {
-					state.scrollOffset += deltaY;
 					state.maxScroll = calculateMaxScroll();
-					state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+					const wouldBeOffset = state.scrollOffset + deltaY;
+					
+					let actualDelta = deltaY;
+					
+					// ✅ CORRIGER: Appliquer les limites d'overscroll
+					if (wouldBeOffset > 0) {
+						// Overscroll en haut
+						const currentOverscroll = state.scrollOffset > 0 ? state.scrollOffset : 0;
+						
+						// Si on a déjà atteint la limite, ne plus bouger
+						if (currentOverscroll >= state.maxOverscroll) {
+							actualDelta = 0;
+							state.overscrollDistance = state.maxOverscroll;
+						} else {
+							// Calculer la résistance progressive
+							const overscrollRatio = currentOverscroll / state.maxOverscroll;
+							const resistance = state.overscrollResistance * (1 - overscrollRatio * 0.7);
+							
+							actualDelta = deltaY * resistance;
+							
+							// S'assurer qu'on ne dépasse pas la limite
+							const newOverscroll = currentOverscroll + actualDelta;
+							if (newOverscroll > state.maxOverscroll) {
+								actualDelta = state.maxOverscroll - currentOverscroll;
+							}
+							
+							state.overscrollDistance = currentOverscroll + actualDelta;
+						}
+					} else if (wouldBeOffset < -state.maxScroll) {
+						// Overscroll en bas
+						const currentOverscroll = state.scrollOffset < -state.maxScroll 
+							? Math.abs(state.scrollOffset + state.maxScroll) 
+							: 0;
+						
+						// Si on a déjà atteint la limite, ne plus bouger
+						if (currentOverscroll >= state.maxOverscroll) {
+							actualDelta = 0;
+							state.overscrollDistance = -state.maxOverscroll;
+						} else {
+							// Calculer la résistance progressive
+							const overscrollRatio = currentOverscroll / state.maxOverscroll;
+							const resistance = state.overscrollResistance * (1 - overscrollRatio * 0.7);
+							
+							actualDelta = deltaY * resistance;
+							
+							// S'assurer qu'on ne dépasse pas la limite
+							const newOverscroll = currentOverscroll + Math.abs(actualDelta);
+							if (newOverscroll > state.maxOverscroll) {
+								actualDelta = deltaY > 0 
+									? state.maxOverscroll - currentOverscroll 
+									: -(state.maxOverscroll - currentOverscroll);
+							}
+							
+							state.overscrollDistance = -(currentOverscroll + Math.abs(actualDelta));
+						}
+					} else {
+						// Scroll normal
+						state.overscrollDistance = 0;
+					}
+					
+					state.scrollOffset += actualDelta;
 					state.scrollVelocity = deltaY;
+					
 					return {
 						scrollOffset: state.scrollOffset,
 						scrollVelocity: state.scrollVelocity,
-						maxScroll: state.maxScroll
+						maxScroll: state.maxScroll,
+						overscrollDistance: state.overscrollDistance
 					};
 				}
 				return null;
@@ -754,16 +846,14 @@ class CanvasFramework {
 
 				switch (type) {
 					case 'INIT':
-						state = {
-							...state,
-							...payload
-						};
+						state = { ...state, ...payload };
 						state.maxScroll = calculateMaxScroll();
 						self.postMessage({ 
 							type: 'INITIALIZED', 
 							payload: { 
 								scrollOffset: state.scrollOffset,
-								maxScroll: state.maxScroll 
+								maxScroll: state.maxScroll,
+								overscrollDistance: 0
 							}
 						});
 						break;
@@ -816,12 +906,43 @@ class CanvasFramework {
 					case 'SET_SCROLL_OFFSET':
 						state.scrollOffset = payload.scrollOffset;
 						state.maxScroll = calculateMaxScroll();
-						state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+						state.overscrollDistance = 0;
 						self.postMessage({ 
 							type: 'SCROLL_UPDATED', 
 							payload: { 
 								scrollOffset: state.scrollOffset,
-								maxScroll: state.maxScroll 
+								maxScroll: state.maxScroll,
+								overscrollDistance: 0
+							}
+						});
+						break;
+
+					case 'ANIMATE_RETURN':
+						state.maxScroll = calculateMaxScroll();
+						
+						if (state.scrollOffset > 0) {
+							state.scrollOffset *= 0.75;
+							state.overscrollDistance = state.scrollOffset;
+						} else if (state.scrollOffset < -state.maxScroll) {
+							const diff = state.scrollOffset + state.maxScroll;
+							state.scrollOffset = -state.maxScroll + (diff * 0.75);
+							state.overscrollDistance = diff * 0.75;
+						}
+						
+						const shouldContinue = Math.abs(state.overscrollDistance) > 1;
+						
+						if (!shouldContinue) {
+							state.scrollOffset = Math.max(Math.min(state.scrollOffset, 0), -state.maxScroll);
+							state.overscrollDistance = 0;
+						}
+						
+						self.postMessage({ 
+							type: 'SCROLL_UPDATED', 
+							payload: { 
+								scrollOffset: state.scrollOffset,
+								maxScroll: state.maxScroll,
+								overscrollDistance: state.overscrollDistance,
+								shouldContinue
 							}
 						});
 						break;
@@ -833,7 +954,8 @@ class CanvasFramework {
 								scrollOffset: state.scrollOffset,
 								scrollVelocity: state.scrollVelocity,
 								maxScroll: state.maxScroll,
-								isDragging: state.isDragging
+								isDragging: state.isDragging,
+								overscrollDistance: state.overscrollDistance
 							}
 						});
 						break;
@@ -841,64 +963,71 @@ class CanvasFramework {
 			};
 		`;
 
-        const blob = new Blob([workerCode], {
-            type: 'application/javascript'
-        });
-        return new Worker(URL.createObjectURL(blob));
-    }
+		const blob = new Blob([workerCode], { type: 'application/javascript' });
+		return new Worker(URL.createObjectURL(blob));
+	}
 
     /**
      * Gère les messages du Scroll Worker
      */
     handleScrollWorkerMessage(e) {
-        const {
-            type,
-            payload
-        } = e.data;
+    const { type, payload } = e.data;
 
-        switch (type) {
-            case 'SCROLL_UPDATED':
-                this.scrollOffset = payload.scrollOffset;
-                this.scrollVelocity = payload.scrollVelocity;
-                // ✅ CORRECTION IMPORTANTE : Vider le cache dirty pendant le scroll
-                if (Math.abs(payload.scrollVelocity) > 0.5) {
-                    this.dirtyComponents.clear();
-                }
-                // Mettre à jour le cache
-                this._cachedMaxScroll = payload.maxScroll;
-                this._maxScrollDirty = false;
+    switch (type) {
+        case 'SCROLL_UPDATED':
+            this.scrollOffset = payload.scrollOffset;
+            this.scrollVelocity = payload.scrollVelocity;
+            
+            // ✅ AJOUTER
+            this.overscrollDistance = payload.overscrollDistance || 0;
+            
+            if (Math.abs(payload.scrollVelocity) > 0.5) {
+                this.dirtyComponents.clear();
+            }
+            
+            this._cachedMaxScroll = payload.maxScroll;
+            this._maxScrollDirty = false;
 
-                // Marquer les composants comme sales pour mise à jour visuelle
-                if (Math.abs(payload.scrollVelocity) > 0) {
-                    this.components.forEach(comp => {
-                        if (!this.isFixedComponent(comp)) {
-                            this.markComponentDirty(comp);
-                        }
-                    });
-                }
-                break;
+            if (Math.abs(payload.scrollVelocity) > 0) {
+                this.components.forEach(comp => {
+                    if (!this.isFixedComponent(comp)) {
+                        this.markComponentDirty(comp);
+                    }
+                });
+            }
+            
+            // ✅ AJOUTER: Continuer l'animation de retour si nécessaire
+            if (payload.shouldContinue !== undefined && payload.shouldContinue) {
+                requestAnimationFrame(() => {
+                    this.scrollWorker.postMessage({ type: 'ANIMATE_RETURN' });
+                });
+            } else if (payload.shouldContinue === false) {
+                this.isOverscrollAnimating = false;
+            }
+            break;
 
-            case 'MAX_SCROLL_UPDATED':
-                this._cachedMaxScroll = payload.maxScroll;
-                this._maxScrollDirty = false;
-                break;
+        case 'MAX_SCROLL_UPDATED':
+            this._cachedMaxScroll = payload.maxScroll;
+            this._maxScrollDirty = false;
+            break;
 
-            case 'INITIALIZED':
-                this.scrollOffset = payload.scrollOffset;
-                this._cachedMaxScroll = payload.maxScroll;
-                this._maxScrollDirty = false;
-                break;
+        case 'INITIALIZED':
+            this.scrollOffset = payload.scrollOffset;
+            this._cachedMaxScroll = payload.maxScroll;
+            this._maxScrollDirty = false;
+            this.overscrollDistance = 0; // ✅ AJOUTER
+            break;
 
-            case 'STATE':
-                // Synchroniser l'état local
-                this.scrollOffset = payload.scrollOffset;
-                this.scrollVelocity = payload.scrollVelocity;
-                this.isDragging = payload.isDragging;
-                this._cachedMaxScroll = payload.maxScroll;
-                this._maxScrollDirty = false;
-                break;
-        }
+        case 'STATE':
+            this.scrollOffset = payload.scrollOffset;
+            this.scrollVelocity = payload.scrollVelocity;
+            this.isDragging = payload.isDragging;
+            this._cachedMaxScroll = payload.maxScroll;
+            this._maxScrollDirty = false;
+            this.overscrollDistance = payload.overscrollDistance || 0; // ✅ AJOUTER
+            break;
     }
+}
 
     /**
      * Initialise le Scroll Worker avec les données actuelles
@@ -2006,8 +2135,18 @@ class CanvasFramework {
 					comp.destroy();
 				}
 			}
+			
+			// 2. Désactiver TOUS les gestionnaires d'événements
+			comp.onClick = null;
+			comp.onPress = null;
+			
+			
+			if (comp._unmount && typeof comp._unmount === 'function') {
+				comp._unmount();
+			}
 		});
-
+		
+		
 		// ✅ Nettoyer toutes les vidéos orphelines AVANT de créer les nouveaux composants
 		const allVideos = document.querySelectorAll('video');
 		allVideos.forEach(v => v.remove());
@@ -2030,9 +2169,13 @@ class CanvasFramework {
 
 		// ===== CRÉER LES NOUVEAUX COMPOSANTS =====
 		this.components = [];
+		this._isNavigating = true; // ✅ Flag pour empêcher l'auto-démarrages
+		
 		if (typeof route.component === 'function') {
 			route.component(this, params, query);
 		}
+		
+		this._isNavigating = false; // ✅ Navigation terminée
 
 		// ===== LANCER L'ANIMATION DE TRANSITION =====
 		if (animate && !this.transitionState.isTransitioning) {
@@ -2296,23 +2439,29 @@ class CanvasFramework {
     }
 
     handleTouchEnd(e) {
-        e.preventDefault();
-        const touch = e.changedTouches[0];
-        const pos = this.getTouchPos(touch);
+		e.preventDefault();
+		const touch = e.changedTouches[0];
+		const pos = this.getTouchPos(touch);
 
-        if (!this.isDragging) {
-            this.checkComponentsAtPosition(pos.x, pos.y, 'end');
-        } else {
-            this.isDragging = false;
-            this.scrollWorker.postMessage({
-                type: 'SET_DRAGGING',
-                payload: {
-                    isDragging: false,
-                    lastVelocity: this.scrollVelocity
-                }
-            });
-        }
-    }
+		if (!this.isDragging) {
+			this.checkComponentsAtPosition(pos.x, pos.y, 'end');
+		} else {
+			this.isDragging = false;
+			this.scrollWorker.postMessage({
+				type: 'SET_DRAGGING',
+				payload: {
+					isDragging: false,
+					lastVelocity: this.scrollVelocity
+				}
+			});
+			
+			// ✅ AJOUTER: Démarrer l'animation de retour
+			if (!this.isOverscrollAnimating) {
+				this.isOverscrollAnimating = true;
+				this.scrollWorker.postMessage({ type: 'ANIMATE_RETURN' });
+			}
+		}
+	}
 
     handleMouseDown(e) {
         this.isDragging = false;
@@ -2360,21 +2509,26 @@ class CanvasFramework {
         }
     }
 
-    handleMouseUp(e) {
-        if (!this.isDragging) {
-            this.checkComponentsAtPosition(e.clientX, e.clientY, 'end');
-        } else {
-            this.isDragging = false;
-            this.scrollWorker.postMessage({
-                type: 'SET_DRAGGING',
-                payload: {
-                    isDragging: false,
-                    lastVelocity: this.scrollVelocity
-                }
-            });
+   handleMouseUp(e) {
+    if (!this.isDragging) {
+        this.checkComponentsAtPosition(e.clientX, e.clientY, 'end');
+    } else {
+        this.isDragging = false;
+        this.scrollWorker.postMessage({
+            type: 'SET_DRAGGING',
+            payload: {
+                isDragging: false,
+                lastVelocity: this.scrollVelocity
+            }
+        });
+        
+        // ✅ AJOUTER: Démarrer l'animation de retour
+        if (!this.isOverscrollAnimating) {
+            this.isOverscrollAnimating = true;
+            this.scrollWorker.postMessage({ type: 'ANIMATE_RETURN' });
         }
     }
-
+}
 
     getTouchPos(touch) {
         const rect = this.canvas.getBoundingClientRect();
@@ -2972,6 +3126,46 @@ class CanvasFramework {
 		else {
 			this.renderFull();
 		}
+	}
+	
+	/**
+	 * Dessine l'effet d'overscroll (overlay gris)
+	 */
+	drawOverscrollEffect() {console.log('dessine');
+		if (Math.abs(this.overscrollDistance) < 1) return;
+		
+		const ctx = this.ctx;
+		ctx.save();
+		
+		// Calculer l'opacité (max 0.4 pour Android)
+		const maxOverscroll = 150;
+		const opacity = Math.min(Math.abs(this.overscrollDistance) / maxOverscroll, 1) * 0.4;
+		
+		// Hauteur de l'overlay
+		const overlayHeight = Math.min(Math.abs(this.overscrollDistance) * 1.2, 250);
+		
+		let gradient;
+		
+		// Overscroll en haut
+		if (this.overscrollDistance > 0) {
+			gradient = ctx.createLinearGradient(0, 0, 0, overlayHeight);
+			gradient.addColorStop(0, `rgba(100, 100, 100, ${opacity})`);
+			gradient.addColorStop(1, 'rgba(100, 100, 100, 0)');
+			
+			ctx.fillStyle = gradient;
+			ctx.fillRect(0, 0, this.width, overlayHeight);
+		}
+		// Overscroll en bas
+		else if (this.overscrollDistance < 0) {
+			gradient = ctx.createLinearGradient(0, this.height - overlayHeight, 0, this.height);
+			gradient.addColorStop(0, 'rgba(100, 100, 100, 0)');
+			gradient.addColorStop(1, `rgba(100, 100, 100, ${opacity})`);
+			
+			ctx.fillStyle = gradient;
+			ctx.fillRect(0, this.height - overlayHeight, this.width, overlayHeight);
+		}
+		
+		ctx.restore();
 	}
 
 	/**

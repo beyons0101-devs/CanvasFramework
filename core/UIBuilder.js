@@ -59,6 +59,7 @@ import Camera from '../components/Camera.js';
 import FloatedCamera from '../components/FloatedCamera.js';
 import TimePicker from '../components/TimePicker.js';
 import QRCodeReader from '../components/QRCodeReader.js';
+import QRCodeGenerator from '../components/QRCodeGenerator.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -145,6 +146,7 @@ const Components = {
   Positioned,
   Banner,
   Chart,
+  QRCodeGenerator,
   Stack
 };
 
