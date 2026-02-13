@@ -55,18 +55,29 @@ class Camera extends Component {
   }
 
   async _mount() {
-    super._mount?.();
+	super._mount?.();
 
-    // Redémarrage auto si besoin
-    if (this.autoStart && !this.stream && !this.isStarting) {
-      this.isStarting = true;
-      await this.startCamera();
-      this.isStarting = false;
-    }
+	// ✅ CORRECTION : Ne démarrer que si visible ET pas en navigation
+	if (this.visible && 
+		  this.autoStart && 
+		  !this.stream && 
+		  !this.isStarting && 
+		  !this.framework._isNavigating) {
+	  this.isStarting = true;
+	  await this.startCamera();
+	  this.isStarting = false;
+	}
 
-    this.setupEventListeners();
+	this.setupEventListeners();
   }
-
+  
+  onUnmount() {
+    this.removeEventListeners();
+    this.stopCamera();
+    if (this.flashTimer) clearTimeout(this.flashTimer);
+    if (this.previewTimeout) clearTimeout(this.previewTimeout);
+  }
+  
   destroy() {
     this.removeEventListeners();
     this.stopCamera();

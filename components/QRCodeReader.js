@@ -53,13 +53,20 @@ class QRCodeReader extends Component {
   async _mount() {
     super._mount?.();
 
-    if (this.autoStart && !this.stream && !this.isStarting) {
+    // ✅ CORRECTION : Ne démarrer que si visible ET pas en navigation
+    if (this.visible && this.autoStart && !this.stream && !this.isStarting && !this.framework._isNavigating) {
       this.isStarting = true;
       await this.startCamera();
       this.isStarting = false;
     }
 
     this.setupEventListeners();
+  }
+  
+  onUnmount() {
+    this.stopScanning();
+    this.removeEventListeners();
+    this.stopCamera();
   }
 
   destroy() {
@@ -86,6 +93,22 @@ class QRCodeReader extends Component {
       };
       document.head.appendChild(script);
     }
+  }
+  
+  static cleanupAllQRReaders() {
+    const allVideos = document.querySelectorAll('video');
+    allVideos.forEach(video => {
+      if (video.srcObject) {
+         const stream = video.srcObject;
+         if (stream && stream.getTracks) {
+             stream.getTracks().forEach(track => track.stop());
+         }
+         video.srcObject = null;     
+      }
+      if (video.parentNode) {
+          video.parentNode.removeChild(video);
+      }
+    });
   }
 
   setupEventListeners() {
@@ -126,6 +149,7 @@ class QRCodeReader extends Component {
   }
 
   async startCamera() {
+	QRCodeReader.cleanupAllQRReaders();  
     if (this.stream) return;
 
     try {
