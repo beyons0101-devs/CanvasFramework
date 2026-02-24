@@ -280,35 +280,34 @@ class Camera extends Component {
   }
 
   handlePress(relX, relY) {
+	  // Capture centrale
+	  const captureX = this.width / 2;
+	  const captureY = this.height - 60;
+	  if (Math.hypot(relX - captureX, relY - captureY) < this.captureButtonRadius + 10) {
+		this.capturePhoto();
+		return;
+	  }
 
-    // Capture centrale
-    const captureX = this.width / 2;
-    const captureY = this.height - 60;
-    if (Math.hypot(relX - captureX, relY - captureY) < this.captureButtonRadius + 10) {
-      this.capturePhoto();
-      return;
-    }
+	  // Switch caméra (haut gauche)
+	  if (relX < 70 && relY < 70) {
+		this.switchCamera();
+		return;
+	  }
 
-    // Switch caméra
-    if (relX < 60 && relY < 60) {
-      this.switchCamera();
-      return;
-    }
+	  // Torch (haut droite) - zone précise
+	  if (this.torchSupported && relX > this.width - 75 && relX < this.width - 25 && relY > 20 && relY < 70) {
+		this.toggleTorch();
+		return;
+	  }
 
-    // Torch
-    if (this.torchSupported && relX > this.width - 60 && relY < 60) {
-      this.toggleTorch();
-      return;
-    }
-
-    // Switch mode
-    const modeButtonX = this.width - 80;
-    const modeButtonY = 20;
-    if (relX > modeButtonX && relX < modeButtonX + this.modeButtonSize &&
-        relY > modeButtonY && relY < modeButtonY + this.modeButtonSize) {
-      this.switchFitMode();
-      return;
-    }
+	  // Switch mode (haut droite, décalé à gauche de la torche)
+	  const modeButtonX = this.width - 130;
+	  const modeButtonY = 20;
+	  if (relX > modeButtonX && relX < modeButtonX + this.modeButtonSize &&
+		  relY > modeButtonY && relY < modeButtonY + this.modeButtonSize) {
+		this.switchFitMode();
+		return;
+	  }
   }
 
   drawContainIcon(ctx, x, y, size) {
@@ -524,132 +523,139 @@ class Camera extends Component {
   }
 
   draw(ctx) {
-    ctx.save();
+  ctx.save();
 
-    ctx.fillStyle = '#000';
+  ctx.fillStyle = '#000';
+  ctx.fillRect(this.x, this.y, this.width, this.height);
+
+  // Flash blanc après capture
+  if (this.flashTimer) {
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.fillRect(this.x, this.y, this.width, this.height);
+  }
 
-    // Flash blanc après capture
-    if (this.flashTimer) {
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.fillRect(this.x, this.y, this.width, this.height);
-    }
+  if (this.error) {
+    ctx.fillStyle = '#ff4444';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this.error, this.x + this.width/2, this.y + this.height/2);
+  } else if (!this.loaded) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Démarrage caméra...', this.x + this.width/2, this.y + this.height/2);
+  } else if (this.video && this.loaded) {
+    const videoRatio = this.video.videoWidth / this.video.videoHeight;
+    const canvasRatio = this.width / this.height;
 
-    if (this.error) {
-      ctx.fillStyle = '#ff4444';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(this.error, this.x + this.width/2, this.y + this.height/2);
-    } else if (!this.loaded) {
-      ctx.fillStyle = '#fff';
-      ctx.font = '16px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('Démarrage caméra...', this.x + this.width/2, this.y + this.height/2);
-    } else if (this.video && this.loaded) {
-      const videoRatio = this.video.videoWidth / this.video.videoHeight;
-      const canvasRatio = this.width / this.height;
+    let drawWidth = this.width;
+    let drawHeight = this.height;
+    let offsetX = 0;
+    let offsetY = 0;
 
-      let drawWidth = this.width;
-      let drawHeight = this.height;
-      let offsetX = 0;
-      let offsetY = 0;
-
-      if (this.fitMode === 'cover') {
-        if (videoRatio > canvasRatio) {
-          drawHeight = this.height;
-          drawWidth = drawHeight * videoRatio;
-          offsetX = (this.width - drawWidth) / 2;
-        } else {
-          drawWidth = this.width;
-          drawHeight = drawWidth / videoRatio;
-          offsetY = (this.height - drawHeight) / 2;
-        }
-      } else if (this.fitMode === 'contain') {
-        if (videoRatio > canvasRatio) {
-          drawWidth = this.width;
-          drawHeight = drawWidth / videoRatio;
-          offsetY = (this.height - drawHeight) / 2;
-        } else {
-          drawHeight = this.height;
-          drawWidth = drawHeight * videoRatio;
-          offsetX = (this.width - drawWidth) / 2;
-        }
-      } 
-
-      ctx.drawImage(this.video, this.x + offsetX, this.y + offsetY, drawWidth, drawHeight);
-
-      // Mini preview dernière photo (bas droite, 3s)
-      if (this.previewPhoto) {
-        const previewSize = 80;
-        const img = new Image();
-        img.src = this.previewPhoto;
-        ctx.drawImage(img, this.x + this.width - previewSize - 10, this.y + this.height - previewSize - 10, previewSize, previewSize);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(this.x + this.width - previewSize - 10, this.y + this.height - previewSize - 10, previewSize, previewSize);
+    if (this.fitMode === 'cover') {
+      if (videoRatio > canvasRatio) {
+        drawHeight = this.height;
+        drawWidth = drawHeight * videoRatio;
+        offsetX = (this.width - drawWidth) / 2;
+      } else {
+        drawWidth = this.width;
+        drawHeight = drawWidth / videoRatio;
+        offsetY = (this.height - drawHeight) / 2;
+      }
+    } else if (this.fitMode === 'contain') {
+      if (videoRatio > canvasRatio) {
+        drawWidth = this.width;
+        drawHeight = drawWidth / videoRatio;
+        offsetY = (this.height - drawHeight) / 2;
+      } else {
+        drawHeight = this.height;
+        drawWidth = drawHeight * videoRatio;
+        offsetX = (this.width - drawWidth) / 2;
       }
     }
 
-    // Contrôles bas
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(this.x, this.y + this.height - 100, this.width, 100);
+    ctx.drawImage(this.video, this.x + offsetX, this.y + offsetY, drawWidth, drawHeight);
 
-    // Bouton capture
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(this.x + this.width/2, this.y + this.height - 50, this.captureButtonRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = '#ff4444';
-    ctx.lineWidth = 6;
-    ctx.beginPath();
-    ctx.arc(this.x + this.width/2, this.y + this.height - 50, this.captureButtonRadius + 10, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Switch caméra avec icône
-    const switchBtnX = this.x + 20;
-    const switchBtnY = this.y + 20;
-    const switchBtnSize = 50;
-    
-    // Fond semi-transparent
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.arc(switchBtnX + switchBtnSize/2, switchBtnY + switchBtnSize/2, switchBtnSize/2, 0, Math.PI * 2);
-    ctx.fill();
-    
-    // Icône
-    this.drawSwitchCameraIcon(ctx, switchBtnX, switchBtnY, switchBtnSize);
-
-    // Torch
-    if (this.torchSupported) {
-      ctx.fillStyle = this.torchOn ? '#ffeb3b' : '#ffffff';
-      ctx.fillText('⚡', this.x + this.width - 50, this.y + 45);
+    // Mini preview dernière photo (bas droite, 3s)
+    if (this.previewPhoto) {
+      const previewSize = 80;
+      const img = new Image();
+      img.src = this.previewPhoto;
+      ctx.drawImage(img, this.x + this.width - previewSize - 10, this.y + this.height - previewSize - 10, previewSize, previewSize);
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(this.x + this.width - previewSize - 10, this.y + this.height - previewSize - 10, previewSize, previewSize);
     }
-
-    // Bouton switch mode avec icône
-    const btnX = this.x + this.width - 80;
-    const btnY = this.y + 20;
-    
-    // Fond du bouton
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillRect(btnX, btnY, this.modeButtonSize, this.modeButtonSize);
-    
-    // Bordure
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(btnX, btnY, this.modeButtonSize, this.modeButtonSize);
-    
-    // Dessiner l'icône appropriée
-    if (this.fitMode === 'contain') {
-      this.drawContainIcon(ctx, btnX, btnY, this.modeButtonSize);
-    } else {
-      this.drawCoverIcon(ctx, btnX, btnY, this.modeButtonSize);
-    }
-
-    ctx.restore();
   }
+
+  // Contrôles bas
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(this.x, this.y + this.height - 100, this.width, 100);
+
+  // Bouton capture
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(this.x + this.width/2, this.y + this.height - 50, this.captureButtonRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ff4444';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.arc(this.x + this.width/2, this.y + this.height - 50, this.captureButtonRadius + 10, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Switch caméra avec icône
+  const switchBtnX = this.x + 20;
+  const switchBtnY = this.y + 20;
+  const switchBtnSize = 50;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath();
+  ctx.arc(switchBtnX + switchBtnSize/2, switchBtnY + switchBtnSize/2, switchBtnSize/2, 0, Math.PI * 2);
+  ctx.fill();
+
+  this.drawSwitchCameraIcon(ctx, switchBtnX, switchBtnY, switchBtnSize);
+
+  // Bouton torche (haut droite)
+  if (this.torchSupported) {
+    const torchBtnX = this.x + this.width - 75;
+    const torchBtnY = this.y + 20;
+    const torchBtnSize = 50;
+
+    ctx.fillStyle = this.torchOn ? 'rgba(255,235,59,0.8)' : 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.arc(torchBtnX + torchBtnSize/2, torchBtnY + torchBtnSize/2, torchBtnSize/2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚡', torchBtnX + torchBtnSize/2, torchBtnY + torchBtnSize/2);
+  }
+
+  // Bouton switch mode (décalé à gauche de la torche)
+  const btnX = this.x + this.width - 130;
+  const btnY = this.y + 20;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillRect(btnX, btnY, this.modeButtonSize, this.modeButtonSize);
+
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(btnX, btnY, this.modeButtonSize, this.modeButtonSize);
+
+  if (this.fitMode === 'contain') {
+    this.drawContainIcon(ctx, btnX, btnY, this.modeButtonSize);
+  } else {
+    this.drawCoverIcon(ctx, btnX, btnY, this.modeButtonSize);
+  }
+
+  ctx.restore();
+}
 }
 
 export default Camera;

@@ -2,7 +2,8 @@ import Component from '../core/Component.js';
 
 /**
  * Composant Camera autonome avec gestion directe des clics/touches
- * Modes : contain (tout visible + bandes), cover (remplit + crop), fit (centre sans crop)
+ * Modes : contain (tout visible + bandes), cover (remplit + crop)
+ * Layout boutons haut : [switch caméra GAUCHE] [torch CENTRE] [mode DROITE]
  */
 class FloatedCamera extends Component {
   constructor(framework, options = {}) {
@@ -29,27 +30,28 @@ class FloatedCamera extends Component {
 
     // Feedback capture
     this.flashTimer = null;
-    this.previewPhoto = null; // dataUrl dernière photo
+    this.previewPhoto = null;
     this.previewTimeout = null;
 
     this.isStarting = false;
+
+    // Taille et position des boutons (haut)
+    this.topBtnSize = 50;
+    this.topBtnMargin = 20;
   }
-  
+
   static cleanupAllCameras() {
     const allVideos = document.querySelectorAll('video');
     allVideos.forEach(video => {
-      // Arrêter les streams
       if (video.srcObject) {
-         const stream = video.srcObject;
-         if (stream && stream.getTracks) {
-             stream.getTracks().forEach(track => track.stop());
-         }
-	     video.srcObject = null;     
-  	  }
-            
-      // Supprimer du DOM
+        const stream = video.srcObject;
+        if (stream && stream.getTracks) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        video.srcObject = null;
+      }
       if (video.parentNode) {
-          video.parentNode.removeChild(video);
+        video.parentNode.removeChild(video);
       }
     });
   }
@@ -57,7 +59,6 @@ class FloatedCamera extends Component {
   async _mount() {
     super._mount?.();
 
-    // ✅ CORRECTION : Ne démarrer que si visible ET pas en navigation
     if (this.visible && this.autoStart && !this.stream && !this.isStarting && !this.framework._isNavigating) {
       this.isStarting = true;
       await this.startCamera();
@@ -66,7 +67,7 @@ class FloatedCamera extends Component {
 
     this.setupEventListeners();
   }
-  
+
   onUnmount() {
     this.removeEventListeners();
     this.stopCamera();
@@ -82,7 +83,6 @@ class FloatedCamera extends Component {
     super.destroy?.();
   }
 
-  // Écoute directe (indépendante du framework)
   setupEventListeners() {
     this.onTouchStart = this.handleTouchStart.bind(this);
     this.onTouchMove = this.handleTouchMove.bind(this);
@@ -110,7 +110,6 @@ class FloatedCamera extends Component {
     canvas.removeEventListener('mouseup', this.onMouseUp);
   }
 
-  // Coordonnées locales
   getLocalPos(clientX, clientY) {
     const rect = this.framework.canvas.getBoundingClientRect();
     const globalX = clientX - rect.left;
@@ -128,13 +127,8 @@ class FloatedCamera extends Component {
     this.handlePress(pos.x, pos.y);
   }
 
-  handleTouchMove(e) {
-    e.preventDefault();
-  }
-
-  handleTouchEnd(e) {
-    e.preventDefault();
-  }
+  handleTouchMove(e) { e.preventDefault(); }
+  handleTouchEnd(e) { e.preventDefault(); }
 
   handleMouseDown(e) {
     const pos = this.getLocalPos(e.clientX, e.clientY);
@@ -142,11 +136,10 @@ class FloatedCamera extends Component {
   }
 
   handleMouseMove(e) {}
-
   handleMouseUp(e) {}
 
   async startCamera() {
-	FloatedCamera.cleanupAllCameras();  
+    FloatedCamera.cleanupAllCameras();
     if (this.stream) return;
 
     try {
@@ -253,7 +246,6 @@ class FloatedCamera extends Component {
     if (this.onPhoto) this.onPhoto(dataUrl);
     console.log('Photo capturée ! DataURL:', dataUrl.substring(0, 50) + '...');
 
-    // Feedback : flash + preview 3s
     this.flashTimer = setTimeout(() => {
       this.flashTimer = null;
       this.markDirty();
@@ -275,249 +267,209 @@ class FloatedCamera extends Component {
     this.markDirty();
   }
 
-  handlePress(relX, relY) {
+  // ─── Zones des boutons ───────────────────────────────────────────────────────
+  // Layout haut : [switch caméra GAUCHE] [torch CENTRE] [mode DROITE]
 
-    // Capture centrale
-    const captureX = this.width / 2;
-    const captureY = this.height - 60;
-    if (Math.hypot(relX - captureX, relY - captureY) < this.captureButtonRadius + 10) {
+  _getSwitchBtnBounds() {
+    return {
+      x: this.topBtnMargin,
+      y: this.topBtnMargin,
+      size: this.topBtnSize
+    };
+  }
+
+  _getTorchBtnBounds() {
+    // Centré horizontalement dans le composant
+    return {
+      x: (this.width - this.topBtnSize) / 2,
+      y: this.topBtnMargin,
+      size: this.topBtnSize
+    };
+  }
+
+  _getModeBtnBounds() {
+    // Droite, centré verticalement par rapport aux autres boutons
+    const yCenter = this.topBtnMargin + this.topBtnSize / 2;
+    return {
+      x: this.width - this.topBtnMargin - this.modeButtonSize,
+      y: yCenter - this.modeButtonSize / 2,
+      size: this.modeButtonSize
+    };
+  }
+
+  _getCaptureBtnCenter() {
+    return {
+      cx: this.width / 2,
+      cy: this.height - 50
+    };
+  }
+
+  // ─── Gestion des clics ──────────────────────────────────────────────────────
+
+  handlePress(relX, relY) {
+    // Guard : ignorer tout clic hors du composant
+    if (relX < 0 || relX > this.width || relY < 0 || relY > this.height) return;
+
+    // Bouton capture
+    const { cx, cy } = this._getCaptureBtnCenter();
+    if (Math.hypot(relX - cx, relY - cy) < this.captureButtonRadius + 10) {
       this.capturePhoto();
       return;
     }
 
-    // Switch caméra
-    if (relX < 60 && relY < 60) {
+    // Switch caméra (GAUCHE)
+    const sw = this._getSwitchBtnBounds();
+    if (Math.hypot(relX - (sw.x + sw.size / 2), relY - (sw.y + sw.size / 2)) < sw.size / 2 + 5) {
       this.switchCamera();
       return;
     }
 
-    // Torch
-    if (this.torchSupported && relX > this.width - 60 && relY < 60) {
-      this.toggleTorch();
-      return;
+    // Torch (CENTRE)
+    if (this.torchSupported) {
+      const tb = this._getTorchBtnBounds();
+      if (Math.hypot(relX - (tb.x + tb.size / 2), relY - (tb.y + tb.size / 2)) < tb.size / 2 + 5) {
+        this.toggleTorch();
+        return;
+      }
     }
 
-    // Switch mode
-    const modeButtonX = this.width - 80;
-    const modeButtonY = 20;
-    if (relX > modeButtonX && relX < modeButtonX + this.modeButtonSize &&
-        relY > modeButtonY && relY < modeButtonY + this.modeButtonSize) {
+    // Mode contain/cover (DROITE)
+    const mb = this._getModeBtnBounds();
+    if (relX >= mb.x && relX <= mb.x + mb.size && relY >= mb.y && relY <= mb.y + mb.size) {
       this.switchFitMode();
       return;
     }
   }
 
+  // ─── Icônes ─────────────────────────────────────────────────────────────────
+
   drawContainIcon(ctx, x, y, size) {
-    // Icône "contain" : rectangle avec flèches vers l'intérieur
     const pad = size * 0.2;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
-    
-    // Rectangle extérieur
     ctx.strokeRect(x + pad, y + pad, size - pad * 2, size - pad * 2);
-    
-    // Flèches pointant vers l'intérieur
+
     const arrowSize = size * 0.15;
     ctx.fillStyle = '#000';
-    
-    // Flèche haut
+
     ctx.beginPath();
-    ctx.moveTo(x + size/2, y + pad - 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + pad + arrowSize);
-    ctx.lineTo(x + size/2 + arrowSize, y + pad + arrowSize);
+    ctx.moveTo(x + size / 2, y + pad - 2);
+    ctx.lineTo(x + size / 2 - arrowSize, y + pad + arrowSize);
+    ctx.lineTo(x + size / 2 + arrowSize, y + pad + arrowSize);
     ctx.fill();
-    
-    // Flèche bas
+
     ctx.beginPath();
-    ctx.moveTo(x + size/2, y + size - pad + 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + size - pad - arrowSize);
-    ctx.lineTo(x + size/2 + arrowSize, y + size - pad - arrowSize);
+    ctx.moveTo(x + size / 2, y + size - pad + 2);
+    ctx.lineTo(x + size / 2 - arrowSize, y + size - pad - arrowSize);
+    ctx.lineTo(x + size / 2 + arrowSize, y + size - pad - arrowSize);
     ctx.fill();
-    
-    // Flèche gauche
+
     ctx.beginPath();
-    ctx.moveTo(x + pad - 2, y + size/2);
-    ctx.lineTo(x + pad + arrowSize, y + size/2 - arrowSize);
-    ctx.lineTo(x + pad + arrowSize, y + size/2 + arrowSize);
+    ctx.moveTo(x + pad - 2, y + size / 2);
+    ctx.lineTo(x + pad + arrowSize, y + size / 2 - arrowSize);
+    ctx.lineTo(x + pad + arrowSize, y + size / 2 + arrowSize);
     ctx.fill();
-    
-    // Flèche droite
+
     ctx.beginPath();
-    ctx.moveTo(x + size - pad + 2, y + size/2);
-    ctx.lineTo(x + size - pad - arrowSize, y + size/2 - arrowSize);
-    ctx.lineTo(x + size - pad - arrowSize, y + size/2 + arrowSize);
+    ctx.moveTo(x + size - pad + 2, y + size / 2);
+    ctx.lineTo(x + size - pad - arrowSize, y + size / 2 - arrowSize);
+    ctx.lineTo(x + size - pad - arrowSize, y + size / 2 + arrowSize);
     ctx.fill();
   }
 
   drawCoverIcon(ctx, x, y, size) {
-    // Icône "cover" : rectangle avec flèches vers l'extérieur
     const pad = size * 0.2;
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
-    
-    // Rectangle intérieur
     ctx.strokeRect(x + pad, y + pad, size - pad * 2, size - pad * 2);
-    
-    // Flèches pointant vers l'extérieur
-    const arrowSize = size * 0.15;
-    ctx.fillStyle = '#000';
-    
-    // Flèche haut
-    ctx.beginPath();
-    ctx.moveTo(x + size/2, y + 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + arrowSize + 2);
-    ctx.lineTo(x + size/2 + arrowSize, y + arrowSize + 2);
-    ctx.fill();
-    
-    // Flèche bas
-    ctx.beginPath();
-    ctx.moveTo(x + size/2, y + size - 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + size - arrowSize - 2);
-    ctx.lineTo(x + size/2 + arrowSize, y + size - arrowSize - 2);
-    ctx.fill();
-    
-    // Flèche gauche
-    ctx.beginPath();
-    ctx.moveTo(x + 2, y + size/2);
-    ctx.lineTo(x + arrowSize + 2, y + size/2 - arrowSize);
-    ctx.lineTo(x + arrowSize + 2, y + size/2 + arrowSize);
-    ctx.fill();
-    
-    // Flèche droite
-    ctx.beginPath();
-    ctx.moveTo(x + size - 2, y + size/2);
-    ctx.lineTo(x + size - arrowSize - 2, y + size/2 - arrowSize);
-    ctx.lineTo(x + size - arrowSize - 2, y + size/2 + arrowSize);
-    ctx.fill();
-  }
 
-    drawContainIcon(ctx, x, y, size) {
-    // Icône "contain" : rectangle avec flèches vers l'intérieur
-    const pad = size * 0.2;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    
-    // Rectangle extérieur
-    ctx.strokeRect(x + pad, y + pad, size - pad * 2, size - pad * 2);
-    
-    // Flèches pointant vers l'intérieur
     const arrowSize = size * 0.15;
     ctx.fillStyle = '#000';
-    
-    // Flèche haut
-    ctx.beginPath();
-    ctx.moveTo(x + size/2, y + pad - 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + pad + arrowSize);
-    ctx.lineTo(x + size/2 + arrowSize, y + pad + arrowSize);
-    ctx.fill();
-    
-    // Flèche bas
-    ctx.beginPath();
-    ctx.moveTo(x + size/2, y + size - pad + 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + size - pad - arrowSize);
-    ctx.lineTo(x + size/2 + arrowSize, y + size - pad - arrowSize);
-    ctx.fill();
-    
-    // Flèche gauche
-    ctx.beginPath();
-    ctx.moveTo(x + pad - 2, y + size/2);
-    ctx.lineTo(x + pad + arrowSize, y + size/2 - arrowSize);
-    ctx.lineTo(x + pad + arrowSize, y + size/2 + arrowSize);
-    ctx.fill();
-    
-    // Flèche droite
-    ctx.beginPath();
-    ctx.moveTo(x + size - pad + 2, y + size/2);
-    ctx.lineTo(x + size - pad - arrowSize, y + size/2 - arrowSize);
-    ctx.lineTo(x + size - pad - arrowSize, y + size/2 + arrowSize);
-    ctx.fill();
-  }
 
-  drawCoverIcon(ctx, x, y, size) {
-    // Icône "cover" : rectangle avec flèches vers l'extérieur
-    const pad = size * 0.2;
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    
-    // Rectangle intérieur
-    ctx.strokeRect(x + pad, y + pad, size - pad * 2, size - pad * 2);
-    
-    // Flèches pointant vers l'extérieur
-    const arrowSize = size * 0.15;
-    ctx.fillStyle = '#000';
-    
-    // Flèche haut
     ctx.beginPath();
-    ctx.moveTo(x + size/2, y + 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + arrowSize + 2);
-    ctx.lineTo(x + size/2 + arrowSize, y + arrowSize + 2);
+    ctx.moveTo(x + size / 2, y + 2);
+    ctx.lineTo(x + size / 2 - arrowSize, y + arrowSize + 2);
+    ctx.lineTo(x + size / 2 + arrowSize, y + arrowSize + 2);
     ctx.fill();
-    
-    // Flèche bas
+
     ctx.beginPath();
-    ctx.moveTo(x + size/2, y + size - 2);
-    ctx.lineTo(x + size/2 - arrowSize, y + size - arrowSize - 2);
-    ctx.lineTo(x + size/2 + arrowSize, y + size - arrowSize - 2);
+    ctx.moveTo(x + size / 2, y + size - 2);
+    ctx.lineTo(x + size / 2 - arrowSize, y + size - arrowSize - 2);
+    ctx.lineTo(x + size / 2 + arrowSize, y + size - arrowSize - 2);
     ctx.fill();
-    
-    // Flèche gauche
+
     ctx.beginPath();
-    ctx.moveTo(x + 2, y + size/2);
-    ctx.lineTo(x + arrowSize + 2, y + size/2 - arrowSize);
-    ctx.lineTo(x + arrowSize + 2, y + size/2 + arrowSize);
+    ctx.moveTo(x + 2, y + size / 2);
+    ctx.lineTo(x + arrowSize + 2, y + size / 2 - arrowSize);
+    ctx.lineTo(x + arrowSize + 2, y + size / 2 + arrowSize);
     ctx.fill();
-    
-    // Flèche droite
+
     ctx.beginPath();
-    ctx.moveTo(x + size - 2, y + size/2);
-    ctx.lineTo(x + size - arrowSize - 2, y + size/2 - arrowSize);
-    ctx.lineTo(x + size - arrowSize - 2, y + size/2 + arrowSize);
+    ctx.moveTo(x + size - 2, y + size / 2);
+    ctx.lineTo(x + size - arrowSize - 2, y + size / 2 - arrowSize);
+    ctx.lineTo(x + size - arrowSize - 2, y + size / 2 + arrowSize);
     ctx.fill();
   }
 
   drawSwitchCameraIcon(ctx, x, y, size) {
-    // Icône de switch caméra : deux caméras avec flèche circulaire
     const centerX = x + size / 2;
     const centerY = y + size / 2;
     const radius = size * 0.35;
-    
+
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
-    
-    // Arc circulaire (flèche de rotation)
+
     ctx.beginPath();
     ctx.arc(centerX, centerY, radius, -Math.PI * 0.7, Math.PI * 0.7);
     ctx.stroke();
-    
-    // Flèche en haut à droite
+
     const arrowSize = size * 0.15;
     const arrowAngle = Math.PI * 0.7;
     const arrowX = centerX + radius * Math.cos(arrowAngle);
     const arrowY = centerY + radius * Math.sin(arrowAngle);
-    
+
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.moveTo(arrowX, arrowY);
     ctx.lineTo(arrowX - arrowSize, arrowY - arrowSize * 0.5);
     ctx.lineTo(arrowX - arrowSize * 0.5, arrowY + arrowSize);
     ctx.fill();
-    
-    // Mini caméra au centre
+
     const camWidth = size * 0.25;
     const camHeight = size * 0.18;
-    const camX = centerX - camWidth / 2;
-    const camY = centerY - camHeight / 2;
-    
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(camX, camY, camWidth, camHeight);
-    
-    // Objectif
+    ctx.fillRect(centerX - camWidth / 2, centerY - camHeight / 2, camWidth, camHeight);
+
     ctx.fillStyle = '#000';
     ctx.beginPath();
     ctx.arc(centerX, centerY, size * 0.08, 0, Math.PI * 2);
     ctx.fill();
   }
+
+  drawTorchIcon(ctx, x, y, size, torchOn) {
+    const cx = x + size / 2;
+    const cy = y + size / 2;
+
+    ctx.fillStyle = torchOn ? 'rgba(255, 235, 59, 0.9)' : 'rgba(0, 0, 0, 0.55)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = torchOn ? '#f9a825' : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.font = `${Math.round(size * 0.48)}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = torchOn ? '#000000' : '#ffffff';
+    ctx.fillText('⚡', cx, cy);
+  }
+
+  // ─── Rendu ──────────────────────────────────────────────────────────────────
 
   draw(ctx) {
     ctx.save();
@@ -525,7 +477,6 @@ class FloatedCamera extends Component {
     ctx.fillStyle = '#000';
     ctx.fillRect(this.x, this.y, this.width, this.height);
 
-    // Flash blanc après capture
     if (this.flashTimer) {
       ctx.fillStyle = 'rgba(255,255,255,0.6)';
       ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -536,13 +487,15 @@ class FloatedCamera extends Component {
       ctx.font = '16px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(this.error, this.x + this.width/2, this.y + this.height/2);
+      ctx.fillText(this.error, this.x + this.width / 2, this.y + this.height / 2);
+
     } else if (!this.loaded) {
       ctx.fillStyle = '#fff';
       ctx.font = '16px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('Démarrage caméra...', this.x + this.width/2, this.y + this.height/2);
+      ctx.fillText('Démarrage caméra...', this.x + this.width / 2, this.y + this.height / 2);
+
     } else if (this.video && this.loaded) {
       const videoRatio = this.video.videoWidth / this.video.videoHeight;
       const canvasRatio = this.width / this.height;
@@ -572,76 +525,68 @@ class FloatedCamera extends Component {
           drawWidth = drawHeight * videoRatio;
           offsetX = (this.width - drawWidth) / 2;
         }
-      } 
+      }
 
       ctx.drawImage(this.video, this.x + offsetX, this.y + offsetY, drawWidth, drawHeight);
 
-      // Mini preview dernière photo (bas droite, 3s)
       if (this.previewPhoto) {
         const previewSize = 80;
         const img = new Image();
         img.src = this.previewPhoto;
-        ctx.drawImage(img, this.x + this.width - previewSize - 10, this.y + this.height - previewSize - 10, previewSize, previewSize);
+        const px = this.x + this.width - previewSize - 10;
+        const py = this.y + this.height - previewSize - 10;
+        ctx.drawImage(img, px, py, previewSize, previewSize);
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
-        ctx.strokeRect(this.x + this.width - previewSize - 10, this.y + this.height - previewSize - 10, previewSize, previewSize);
+        ctx.strokeRect(px, py, previewSize, previewSize);
       }
     }
 
-    // Contrôles bas
+    // ── Barre bas ───────────────────────────────────────────────────────────
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(this.x, this.y + this.height - 100, this.width, 100);
 
     // Bouton capture
+    const { cx, cy } = this._getCaptureBtnCenter();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(this.x + this.width/2, this.y + this.height - 50, this.captureButtonRadius, 0, Math.PI * 2);
+    ctx.arc(this.x + cx, this.y + cy, this.captureButtonRadius, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = '#ff4444';
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.arc(this.x + this.width/2, this.y + this.height - 50, this.captureButtonRadius + 10, 0, Math.PI * 2);
+    ctx.arc(this.x + cx, this.y + cy, this.captureButtonRadius + 10, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Switch caméra avec icône
-    const switchBtnX = this.x + 20;
-    const switchBtnY = this.y + 20;
-    const switchBtnSize = 50;
-    
-    // Fond semi-transparent
+    // ── Boutons haut ────────────────────────────────────────────────────────
+    // Ordre de dessin : switch → mode → torch (torch EN DERNIER = jamais caché)
+
+    // 1. Switch caméra (GAUCHE)
+    const sw = this._getSwitchBtnBounds();
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
-    ctx.arc(switchBtnX + switchBtnSize/2, switchBtnY + switchBtnSize/2, switchBtnSize/2, 0, Math.PI * 2);
+    ctx.arc(this.x + sw.x + sw.size / 2, this.y + sw.y + sw.size / 2, sw.size / 2, 0, Math.PI * 2);
     ctx.fill();
-    
-    // Icône
-    this.drawSwitchCameraIcon(ctx, switchBtnX, switchBtnY, switchBtnSize);
+    this.drawSwitchCameraIcon(ctx, this.x + sw.x, this.y + sw.y, sw.size);
 
-    // Torch
-    if (this.torchSupported) {
-      ctx.fillStyle = this.torchOn ? '#ffeb3b' : '#ffffff';
-      ctx.fillText('⚡', this.x + this.width - 50, this.y + 45);
-    }
-
-    // Bouton switch mode avec icône
-    const btnX = this.x + this.width - 80;
-    const btnY = this.y + 20;
-    
-    // Fond du bouton
+    // 2. Mode contain/cover (DROITE)
+    const mb = this._getModeBtnBounds();
     ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillRect(btnX, btnY, this.modeButtonSize, this.modeButtonSize);
-    
-    // Bordure
+    ctx.fillRect(this.x + mb.x, this.y + mb.y, mb.size, mb.size);
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 2;
-    ctx.strokeRect(btnX, btnY, this.modeButtonSize, this.modeButtonSize);
-    
-    // Dessiner l'icône appropriée
+    ctx.strokeRect(this.x + mb.x, this.y + mb.y, mb.size, mb.size);
     if (this.fitMode === 'contain') {
-      this.drawContainIcon(ctx, btnX, btnY, this.modeButtonSize);
+      this.drawContainIcon(ctx, this.x + mb.x, this.y + mb.y, mb.size);
     } else {
-      this.drawCoverIcon(ctx, btnX, btnY, this.modeButtonSize);
+      this.drawCoverIcon(ctx, this.x + mb.x, this.y + mb.y, mb.size);
+    }
+
+    // 3. Torch (CENTRE) — dessiné en dernier, jamais caché par les autres
+    if (this.torchSupported) {
+      const tb = this._getTorchBtnBounds();
+      this.drawTorchIcon(ctx, this.x + tb.x, this.y + tb.y, tb.size, this.torchOn);
     }
 
     ctx.restore();
