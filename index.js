@@ -12,7 +12,7 @@ export { default as Input } from './components/Input.js';
 export { default as Slider } from './components/Slider.js';
 export { default as Text } from './components/Text.js';
 export { default as View } from './components/View.js';
-export { default as Card } from './components/Card.js';
+export { default as Cards } from './components/Cards.js';
 export { default as FAB } from './components/FAB.js';
 export { default as SpeedDialFAB } from './components/SpeedDialFAB.js';
 export { default as MorphingFAB } from './components/MorphingFAB.js';
@@ -66,6 +66,13 @@ export { default as Camera } from './components/Camera.js';
 export { default as FloatedCamera } from './components/FloatedCamera.js';
 export { default as TimePicker } from './components/TimePicker.js';
 export { default as QRCodeReader } from './components/QRCodeReader.js';
+export { default as QRCodeGenerator } from './components/QRCodeGenerator.js';
+export { default as PaginatedContainer } from './components/PaginatedContainer.js';
+export { default as ColorPicker } from  './components/ColorPicker.js';
+export { default as Rating } from  './components/Rating.js';
+export { default as Breadcrumb } from  './components/Breadcrumb.js';
+export { default as Popover } from  './components/Popover.js';
+export { default as PDFViewer } from './components/PDFViewer.js';
 
 // Utils
 export { default as SafeArea } from './utils/SafeArea.js';
@@ -115,5 +122,6 @@ export { default as SecurityManager } from './manager/SecurityManager.js';
 export { default as FeatureFlags } from './manager/FeatureFlags.js';
 
 // Version du framework
-
-export const VERSION = '0.5.7';
+import pkg from './package.json' assert { type: 'json' };
+// Tu peux maintenant exporter la version directement
+export const VERSION = pkg.version;
