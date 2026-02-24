@@ -60,6 +60,12 @@ import FloatedCamera from '../components/FloatedCamera.js';
 import TimePicker from '../components/TimePicker.js';
 import QRCodeReader from '../components/QRCodeReader.js';
 import QRCodeGenerator from '../components/QRCodeGenerator.js';
+import PaginatedContainer from '../components/PaginatedContainer.js';
+import ColorPicker from '../components/ColorPicker.js';
+import Rating from '../components/Rating.js';
+import Breadcrumb from '../components/Breadcrumb.js';
+import Popover from  '../components/Popover.js';
+import PDFViewer from '../components/PDFViewer.js';
 
 // Utils
 import SafeArea from '../utils/SafeArea.js';
@@ -486,9 +492,10 @@ class CanvasFramework {
         }
 
         this.platform = this.detectPlatform();
-        setTimeout(() => {
+        /*setTimeout(() => {
             this.initScrollWorker();
-        }, 100);
+        }, 100);*/
+		Promise.resolve().then(() => this.initScrollWorker());
         // État actuel + préférence
         this.themeMode = options.themeMode || 'system'; // 'light', 'dark', 'system'
         this.userThemeOverride = null; // null = suit system, sinon 'light' ou 'dark'
@@ -2952,6 +2959,7 @@ class CanvasFramework {
 
 	startRenderLoop() {
 		let lastScrollOffset = this.scrollOffset;
+		this._needsRender = true; // ← AJOUTER
 		
 		const render = () => {
 			if (!this._splashFinished) {
@@ -3131,83 +3139,33 @@ class CanvasFramework {
 	/**
 	 * Dessine l'effet d'overscroll (overlay gris)
 	 */
-	drawOverscrollEffect() {console.log('dessine');
+	drawOverscrollEffect() {
 		if (Math.abs(this.overscrollDistance) < 1) return;
 		
 		const ctx = this.ctx;
-		ctx.save();
-		
-		// Calculer l'opacité (max 0.4 pour Android)
 		const maxOverscroll = 150;
 		const opacity = Math.min(Math.abs(this.overscrollDistance) / maxOverscroll, 1) * 0.4;
-		
-		// Hauteur de l'overlay
 		const overlayHeight = Math.min(Math.abs(this.overscrollDistance) * 1.2, 250);
+		const isTop = this.overscrollDistance > 0;
 		
-		let gradient;
+		// Cache key basé sur les paramètres
+		const cacheKey = `${isTop}-${opacity.toFixed(3)}-${overlayHeight.toFixed(0)}`;
 		
-		// Overscroll en haut
-		if (this.overscrollDistance > 0) {
-			gradient = ctx.createLinearGradient(0, 0, 0, overlayHeight);
-			gradient.addColorStop(0, `rgba(100, 100, 100, ${opacity})`);
-			gradient.addColorStop(1, 'rgba(100, 100, 100, 0)');
+		if (this._overscrollGradientCache?.key !== cacheKey) {
+			const gradient = isTop
+				? ctx.createLinearGradient(0, 0, 0, overlayHeight)
+				: ctx.createLinearGradient(0, this.height - overlayHeight, 0, this.height);
 			
-			ctx.fillStyle = gradient;
-			ctx.fillRect(0, 0, this.width, overlayHeight);
-		}
-		// Overscroll en bas
-		else if (this.overscrollDistance < 0) {
-			gradient = ctx.createLinearGradient(0, this.height - overlayHeight, 0, this.height);
-			gradient.addColorStop(0, 'rgba(100, 100, 100, 0)');
-			gradient.addColorStop(1, `rgba(100, 100, 100, ${opacity})`);
+			gradient.addColorStop(0, isTop ? `rgba(100,100,100,${opacity})` : 'rgba(100,100,100,0)');
+			gradient.addColorStop(1, isTop ? 'rgba(100,100,100,0)' : `rgba(100,100,100,${opacity})`);
 			
-			ctx.fillStyle = gradient;
-			ctx.fillRect(0, this.height - overlayHeight, this.width, overlayHeight);
+			this._overscrollGradientCache = { key: cacheKey, gradient, overlayHeight, isTop };
 		}
 		
+		ctx.save();
+		ctx.fillStyle = this._overscrollGradientCache.gradient;
+		ctx.fillRect(0, isTop ? 0 : this.height - overlayHeight, this.width, overlayHeight);
 		ctx.restore();
-	}
-
-	/**
-	 * Rendu normal (sans transition)
-	 */
-	renderFull() {
-		this.ctx.save();
-		
-		// Séparer les composants fixes et scrollables
-		const scrollableComponents = [];
-		const fixedComponents = [];
-		
-		for (let comp of this.components) {
-			if (this.isFixedComponent(comp)) {
-				fixedComponents.push(comp);
-			} else {
-				scrollableComponents.push(comp);
-			}
-		}
-		
-		// Dessiner les composants scrollables
-		if (scrollableComponents.length > 0) {
-			this.ctx.save();
-			this.ctx.translate(0, this.scrollOffset);
-			
-			for (let comp of scrollableComponents) {
-				if (comp.visible) {
-					comp.draw(this.ctx);
-				}
-			}
-			
-			this.ctx.restore();
-		}
-		
-		// Dessiner les composants fixes
-		for (let comp of fixedComponents) {
-			if (comp.visible) {
-				comp.draw(this.ctx);
-			}
-		}
-		
-		this.ctx.restore();
 	}
 		
 	/**
