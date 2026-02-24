@@ -1,1068 +1,1217 @@
 import Component from '../core/Component.js';
 
 /**
- * Lecteur PDF embarqué avec styles Material You et Cupertino.
- * Supporte : affichage multi-pages, zoom, navigation, miniature, recherche,
- * téléchargement, impression, plein-écran, rotation.
- *
- * Utilise PDF.js (CDN) pour le rendu. La lib est chargée automatiquement.
+ * Lecteur PDF entièrement dessiné sur Canvas.
+ * Gère ses propres événements natifs (click, wheel, mouse, touch)
+ * directement sur le canvas — aucune dépendance au framework pour les interactions.
  *
  * @class
  * @extends Component
- * @property {string} platform - 'material' ou 'cupertino'
- * @property {string|Uint8Array|null} src - URL ou données binaires du PDF
- * @property {number} currentPage - Page courante (1-based)
- * @property {number} totalPages - Nombre total de pages
- * @property {number} scale - Niveau de zoom (1 = 100%)
- * @property {number} rotation - Rotation en degrés (0, 90, 180, 270)
- * @property {boolean} loading - Chargement en cours
- * @property {string|null} error - Message d'erreur
  */
 class PDFViewer extends Component {
 
   /**
    * @param {CanvasFramework} framework
    * @param {Object} [options={}]
-   * @param {string|Uint8Array} [options.src] - URL ou données binaires du PDF
-   * @param {number}  [options.initialPage=1] - Page initiale
-   * @param {number}  [options.initialScale=1.0] - Zoom initial
-   * @param {boolean} [options.showToolbar=true] - Afficher la toolbar
-   * @param {boolean} [options.showThumbnails=false] - Afficher le panneau miniatures
-   * @param {boolean} [options.allowDownload=true] - Bouton de téléchargement
-   * @param {boolean} [options.allowPrint=true] - Bouton d'impression
-   * @param {boolean} [options.allowFullscreen=true] - Bouton plein écran
-   * @param {boolean} [options.allowRotate=true] - Bouton rotation
-   * @param {boolean} [options.allowSearch=true] - Bouton recherche
-   * @param {number}  [options.minScale=0.25] - Zoom minimum
-   * @param {number}  [options.maxScale=5.0] - Zoom maximum
-   * @param {string}  [options.backgroundColor] - Fond global
-   * @param {string}  [options.primaryColor] - Couleur primaire (toolbar)
-   * @param {string}  [options.pageBackground='#FFFFFF'] - Fond page
-   * @param {Function} [options.onPageChange] - Callback(page, total)
-   * @param {Function} [options.onScaleChange] - Callback(scale)
-   * @param {Function} [options.onLoad] - Callback(totalPages) après chargement
-   * @param {Function} [options.onError] - Callback(errorMessage)
+   * @param {string|Uint8Array} [options.src]
+   * @param {number}  [options.initialPage=1]
+   * @param {number}  [options.initialScale=1.0]
+   * @param {boolean} [options.showToolbar=true]
+   * @param {boolean} [options.showThumbnails=false]
+   * @param {boolean} [options.allowZoom=true]        - Boutons zoom
+   * @param {boolean} [options.allowNavigation=true]  - Prev/next (masqué si 1 page)
+   * @param {boolean} [options.allowDownload=true]
+   * @param {boolean} [options.allowPrint=true]
+   * @param {boolean} [options.allowRotate=true]
+   * @param {boolean} [options.allowSearch=true]
+   * @param {number}  [options.minScale=0.25]
+   * @param {number}  [options.maxScale=5.0]
+   * @param {string}  [options.backgroundColor]
+   * @param {string}  [options.primaryColor]
+   * @param {string}  [options.pageBackground='#FFFFFF']
+   * @param {Function} [options.onPageChange]
+   * @param {Function} [options.onScaleChange]
+   * @param {Function} [options.onLoad]
+   * @param {Function} [options.onError]
    */
   constructor(framework, options = {}) {
     super(framework, options);
 
-    this.platform       = framework.platform;
-    this.src            = options.src || null;
-    this.currentPage    = options.initialPage || 1;
-    this.totalPages     = 0;
-    this.scale          = options.initialScale || 1.0;
-    this.rotation       = 0;
-    this.loading        = false;
-    this.error          = null;
-    this.showToolbar    = options.showToolbar !== false;
-    this.showThumbnails = options.showThumbnails || false;
-    this.allowDownload  = options.allowDownload !== false;
-    this.allowPrint     = options.allowPrint !== false;
-    this.allowFullscreen= options.allowFullscreen !== false;
-    this.allowRotate    = options.allowRotate !== false;
-    this.allowSearch    = options.allowSearch !== false;
-    this.minScale       = options.minScale || 0.25;
-    this.maxScale       = options.maxScale || 5.0;
-    this.backgroundColor= options.backgroundColor || null;
-    this.primaryColor   = options.primaryColor || null;
-    this.pageBackground = options.pageBackground || '#FFFFFF';
+    this.platform        = framework.platform;
+    this.src             = options.src || null;
+    this.currentPage     = options.initialPage || 1;
+    this.totalPages      = 0;
+    this.scale           = options.initialScale || 1.0;
+    this.rotation        = 0;
+    this.loading         = false;
+    this.error           = null;
 
-    // Callbacks
+    this.showToolbar     = options.showToolbar     !== false;
+    this.showThumbnails  = options.showThumbnails  || false;
+    this.allowZoom       = options.allowZoom       !== false;
+    this.allowNavigation = options.allowNavigation !== false;
+    this.allowDownload   = options.allowDownload   !== false;
+    this.allowPrint      = options.allowPrint      !== false;
+    this.allowRotate     = options.allowRotate     !== false;
+    this.allowSearch     = options.allowSearch     !== false;
+    this.minScale        = options.minScale        || 0.25;
+    this.maxScale        = options.maxScale        || 5.0;
+    this.backgroundColor = options.backgroundColor || null;
+    this.primaryColor    = options.primaryColor    || null;
+    this.pageBackground  = options.pageBackground  || '#FFFFFF';
+
     this.onPageChange  = options.onPageChange  || (() => {});
     this.onScaleChange = options.onScaleChange || (() => {});
     this.onLoad        = options.onLoad        || (() => {});
     this.onErrorCb     = options.onError       || (() => {});
 
-    // État interne DOM
-    this._containerEl   = null;
-    this._toolbarEl     = null;
-    this._viewerEl      = null;
-    this._thumbsEl      = null;
-    this._searchBarEl   = null;
-    this._mounted       = false;
-    this._pdfDoc        = null;
-    this._pageCanvases  = {};
-    this._thumbCanvases = {};
-    this._renderTask    = null;
+    // Layout
+    this._toolbarHeight = this.showToolbar    ? 52 : 0;
+    this._thumbsWidth   = 110; // toujours réservé, affiché si totalPages > 1
     this._searchOpen    = false;
     this._searchQuery   = '';
-    this._fullscreen    = false;
 
-    this._toolbarHeight   = this.showToolbar    ? 52 : 0;
-    this._thumbsWidth     = this.showThumbnails ? 120 : 0;
+    // PDF state
+    this._pdfDoc      = null;
+    this._pageImages  = {};
+    this._thumbImages = {};
+
+    // Viewer scroll
+    this._scrollY     = 0;
+    this._maxScrollY  = 0;
+
+    // Drag scroll (mouse)
+    this._dragging        = false;
+    this._dragStartY      = 0;
+    this._dragStartScroll = 0;
+
+    // Touch scroll
+    this._touchStartY   = 0;
+    this._touchLastY    = 0;
+    this._touchVelocity = 0;
+    this._momentumRAF   = null;
+
+    // Toolbar hit areas (rebuilt each draw)
+    this._tbButtons      = [];
+    this._pageInputRect  = null;
+    this._retryBtn       = null;
+    this._searchCloseRect= null;
+    this._hoveredBtn     = null;
+
+    // Spinner
+    this._spinAngle = 0;
+    this._spinRAF   = null;
+
+    // Events
+    this._eventsRegistered = false;
+    this._boundHandlers    = {};
+
+    // Mouse position tracking
+    this._lastMouseX = 0;
+    this._lastMouseY = 0;
 
     // Couleurs Material You 3
     this.m3Colors = {
       primary:          '#6750A4',
       onPrimary:        '#FFFFFF',
-      surface:          '#FFFBFE',
       surfaceVariant:   '#E7E0EC',
       onSurface:        '#1C1B1F',
       onSurfaceVariant: '#49454F',
       outline:          '#79747E',
       outlineVariant:   '#CAC4D0',
       error:            '#BA1A1A',
-      shadow:           '#00000040',
-      toolbarBg:        '#6750A4',
-      toolbarText:      '#FFFFFF',
       viewerBg:         '#F7F2FA',
       thumbsBg:         '#EFE9F4',
       thumbBorder:      '#CAC4D0',
       thumbActive:      '#6750A4',
-      pageBox:          '#FFFFFF',
-      pageShadow:       '#00000026',
+      pageShadow:       'rgba(0,0,0,0.15)',
     };
 
     // Couleurs Cupertino
     this.cupertinoColors = {
-      primary:     '#007AFF',
-      onPrimary:   '#FFFFFF',
-      surface:     '#FFFFFF',
-      error:       '#FF3B30',
-      toolbarBg:   '#F2F2F7',
-      toolbarText: '#000000',
-      toolbarBorder:'#C6C6C8',
-      viewerBg:    '#D1D1D6',
-      thumbsBg:    '#F2F2F7',
-      thumbBorder: '#C6C6C8',
-      thumbActive: '#007AFF',
-      pageBox:     '#FFFFFF',
-      pageShadow:  '#00000026',
+      primary:          '#007AFF',
+      onPrimary:        '#FFFFFF',
+      error:            '#FF3B30',
+      toolbarBorder:    '#C6C6C8',
+      viewerBg:         '#D1D1D6',
+      thumbsBg:         '#F2F2F7',
+      thumbBorder:      '#C6C6C8',
+      thumbActive:      '#007AFF',
+      pageShadow:       'rgba(0,0,0,0.15)',
+      onSurfaceVariant: '#8E8E93',
+      outlineVariant:   '#C6C6C8',
+      outline:          '#C6C6C8',
     };
+
+    if (this.src) this._loadPDF(this.src);
+    this._startSpinner();
   }
 
-  get _colors() {
-    return this.platform === 'material' ? this.m3Colors : this.cupertinoColors;
+  // ─── Couleurs & géométrie ────────────────────────────────────────────────────
+
+  get _colors()  { return this.platform === 'material' ? this.m3Colors : this.cupertinoColors; }
+  get _primary() { return this.primaryColor || this._colors.primary; }
+  get _isMat()   { return this.platform === 'material'; }
+
+  get _tbRect() {
+    return { x: this.x, y: this.y, w: this.width, h: this._toolbarHeight };
+  }
+  get _sbRect() {
+    return { x: this.x, y: this.y + this._toolbarHeight, w: this.width, h: this._searchOpen ? 44 : 0 };
+  }
+  get _activeThumbsWidth() { return this.totalPages > 1 ? this._thumbsWidth : 0; }
+  get _viewerRect() {
+    const top = this._toolbarHeight + this._sbRect.h;
+    return { x: this.x + this._activeThumbsWidth, y: this.y + top, w: this.width - this._activeThumbsWidth, h: this.height - top };
+  }
+  get _thumbRect() {
+    const top = this._toolbarHeight + this._sbRect.h;
+    return { x: this.x, y: this.y + top, w: this._thumbsWidth, h: this.height - top };
   }
 
-  get _primary() {
-    return this.primaryColor || this._colors.primary;
+  // ─── Conversion événements → coordonnées canvas ──────────────────────────────
+
+  _evtToXY(e) {
+    const canvas = this.framework.canvas;
+    const rect   = canvas.getBoundingClientRect();
+    // Ratio CSS vs canvas réel
+    const sx = canvas.width  / rect.width;
+    const sy = canvas.height / rect.height;
+    let cx, cy;
+    if (e.touches && e.touches.length > 0) {
+      cx = e.touches[0].clientX; cy = e.touches[0].clientY;
+    } else if (e.changedTouches && e.changedTouches.length > 0) {
+      cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY;
+    } else {
+      cx = e.clientX; cy = e.clientY;
+    }
+    // On ajoute le scrollOffset du framework pour être en coordonnées "monde"
+    const worldY = (cy - rect.top) * sy + (this.framework.scrollOffset || 0);
+    return { x: (cx - rect.left) * sx, y: worldY };
   }
 
-  // ─── Chargement PDF.js ────────────────────────────────────────────────────────
+  _inSelf(x, y) {
+    return x >= this.x && x <= this.x + this.width &&
+           y >= this.y && y <= this.y + this.height;
+  }
 
-  /**
-   * Charge PDF.js depuis CDN si non disponible
-   * @returns {Promise<Object>} pdfjsLib
-   * @private
-   */
+  _inViewer(x, y) {
+    const v = this._viewerRect;
+    return x >= v.x && x <= v.x + v.w && y >= v.y && y <= v.y + v.h;
+  }
+
+  // ─── Enregistrement des événements natifs (one-shot) ─────────────────────────
+
+  _registerEvents() {
+    if (this._eventsRegistered) return;
+    this._eventsRegistered = true;
+    const canvas = this.framework.canvas;
+
+    // ── Mouse ──
+    const onMouseDown = (e) => {
+      const { x, y } = this._evtToXY(e);
+      if (!this._inSelf(x, y)) return;
+      
+      // Vérifier si on clique sur la toolbar ou les miniatures
+      const inToolbar = this.showToolbar && y >= this._tbRect.y && y <= this._tbRect.y + this._tbRect.h;
+      const inThumbs = this.totalPages > 1 && x >= this._thumbRect.x && x <= this._thumbRect.x + this._thumbRect.w;
+      
+      if (inToolbar || inThumbs) {
+        // Ne pas démarrer le drag pour les interactions toolbar/miniatures
+        return;
+      }
+      
+      if (this._inViewer(x, y)) {
+        this._dragging = true;
+        this._dragStartY = y;
+        this._dragStartScroll = this._scrollY;
+        if (this._momentumRAF) { 
+          cancelAnimationFrame(this._momentumRAF); 
+          this._momentumRAF = null; 
+        }
+      }
+    };
+
+    const onMouseMove = (e) => {
+      const { x, y } = this._evtToXY(e);
+      this._lastMouseX = x;
+      this._lastMouseY = y;
+      
+      // Hover - toujours vérifier le survol
+      if (this._inSelf(x, y)) {
+        this._checkHover(x, y);
+      } else if (this._hoveredBtn !== null) {
+        this._hoveredBtn = null;
+        this._redraw();
+      }
+      
+      // Drag
+      if (this._dragging) {
+        this._scrollY = Math.max(0, Math.min(this._maxScrollY, this._dragStartScroll + (this._dragStartY - y)));
+        this._syncPage();
+        this._redraw();
+      }
+    };
+
+    const onMouseUp = () => { 
+      this._dragging = false; 
+    };
+
+    const onMouseLeave = () => {
+      this._dragging = false;
+      this._hoveredBtn = null;
+      this._redraw();
+    };
+
+    // ── Click ──
+    const onClick = (e) => {
+      const { x, y } = this._evtToXY(e);
+      if (!this._inSelf(x, y)) return;
+      this._handleClick(x, y);
+    };
+
+    // ── Wheel ──
+    const onWheel = (e) => {
+      const { x, y } = this._evtToXY(e);
+      if (!this._inSelf(x, y)) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom avec Ctrl+molette
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        this._setScale(this.scale + delta);
+      } else {
+        // Scroll normal
+        if (this._inViewer(x, y)) {
+          this._scrollY = Math.max(0, Math.min(this._maxScrollY, this._scrollY + e.deltaY));
+          this._syncPage();
+          this._redraw();
+        }
+      }
+    };
+
+    // ── Touch ──
+    const onTouchStart = (e) => {
+      const { x, y } = this._evtToXY(e);
+      if (!this._inSelf(x, y)) return;
+      
+      // Vérifier si on touche la toolbar ou les miniatures
+      const inToolbar = this.showToolbar && y >= this._tbRect.y && y <= this._tbRect.y + this._tbRect.h;
+      const inThumbs = this.totalPages > 1 && x >= this._thumbRect.x && x <= this._thumbRect.x + this._thumbRect.w;
+      
+      if (inToolbar || inThumbs) {
+        return;
+      }
+      
+      if (this._inViewer(x, y)) {
+        this._dragging = true;
+        this._touchStartY = y;
+        this._touchLastY = y;
+        this._touchVelocity = 0;
+        this._dragStartScroll = this._scrollY;
+        if (this._momentumRAF) { 
+          cancelAnimationFrame(this._momentumRAF); 
+          this._momentumRAF = null; 
+        }
+        e.preventDefault();
+      }
+    };
+
+    const onTouchMove = (e) => {
+      if (!this._dragging) return;
+      const { y } = this._evtToXY(e);
+      this._touchVelocity = this._touchLastY - y;
+      this._touchLastY = y;
+      this._scrollY = Math.max(0, Math.min(this._maxScrollY, this._dragStartScroll + (this._touchStartY - y)));
+      this._syncPage();
+      this._redraw();
+      e.preventDefault();
+    };
+
+    const onTouchEnd = (e) => {
+      if (!this._dragging) return;
+      this._dragging = false;
+      
+      // Vérifier si c'était un tap (pas de mouvement)
+      if (Math.abs(this._touchVelocity) < 0.5) {
+        const { x, y } = this._evtToXY(e);
+        this._handleClick(x, y);
+        return;
+      }
+      
+      // Momentum
+      let v = this._touchVelocity;
+      const momentum = () => {
+        if (Math.abs(v) < 0.5) return;
+        this._scrollY = Math.max(0, Math.min(this._maxScrollY, this._scrollY + v));
+        v *= 0.92;
+        this._syncPage();
+        this._redraw();
+        this._momentumRAF = requestAnimationFrame(momentum);
+      };
+      this._momentumRAF = requestAnimationFrame(momentum);
+    };
+
+    // Ajout des écouteurs
+    canvas.addEventListener('mousedown',  onMouseDown);
+    canvas.addEventListener('mousemove',  onMouseMove);
+    canvas.addEventListener('mouseup',    onMouseUp);
+    canvas.addEventListener('mouseleave', onMouseLeave);
+    canvas.addEventListener('click',      onClick);
+    canvas.addEventListener('wheel',      onWheel,      { passive: false });
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove',  onTouchMove,  { passive: false });
+    canvas.addEventListener('touchend',   onTouchEnd);
+    canvas.addEventListener('touchcancel', onTouchEnd);
+
+    this._boundHandlers = { onMouseDown, onMouseMove, onMouseUp, onMouseLeave, onClick, onWheel, onTouchStart, onTouchMove, onTouchEnd };
+  }
+
+  _checkHover(x, y) {
+    let hover = null;
+    
+    // Vérifier les boutons de la toolbar
+    for (const b of this._tbButtons) {
+      if (!b.disabled && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) { 
+        hover = b.id; 
+        break; 
+      }
+    }
+    
+    // Vérifier le bouton de fermeture de recherche
+    if (this._searchCloseRect && !hover) {
+      const r = this._searchCloseRect;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        hover = 'searchClose';
+      }
+    }
+    
+    // Vérifier le bouton de réessai
+    if (this._retryBtn && !hover) {
+      const r = this._retryBtn;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        hover = 'retry';
+      }
+    }
+    
+    if (hover !== this._hoveredBtn) { 
+      this._hoveredBtn = hover; 
+      this._redraw(); 
+    }
+  }
+
+  _redraw() {
+    if (this.framework && this.framework.redraw) this.framework.redraw();
+  }
+
+  // ─── Spinner ─────────────────────────────────────────────────────────────────
+
+  _startSpinner() {
+    const tick = () => {
+      if (this.loading) { 
+        this._spinAngle = (this._spinAngle + 0.08) % (Math.PI * 2); 
+        this._redraw(); 
+      }
+      this._spinRAF = requestAnimationFrame(tick);
+    };
+    this._spinRAF = requestAnimationFrame(tick);
+  }
+
+  // ─── Chargement PDF.js ───────────────────────────────────────────────────────
+
   async _loadPDFJS() {
     if (window.pdfjsLib) return window.pdfjsLib;
-
     return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      script.onload = () => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = () => {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc =
           'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         resolve(window.pdfjsLib);
       };
-      script.onerror = () => reject(new Error('Impossible de charger PDF.js'));
-      document.head.appendChild(script);
+      s.onerror = () => reject(new Error('Impossible de charger PDF.js'));
+      document.head.appendChild(s);
     });
   }
 
-  // ─── Montage DOM ─────────────────────────────────────────────────────────────
-
-  /**
-   * Monte le composant DOM complet sur le canvas
-   * @private
-   */
-  _mount() {
-    if (this._mounted) return;
-    this._mounted = true;
-
-    const canvas   = this.framework.canvas;
-    const canvasRect = canvas.getBoundingClientRect();
-    const isMat    = this.platform === 'material';
-    const colors   = this._colors;
-
-    // Conteneur principal
-    this._containerEl = document.createElement('div');
-    this._containerEl.style.cssText = `
-      position: fixed;
-      left: ${canvasRect.left + this.x}px;
-      top: ${canvasRect.top + this.y}px;
-      width: ${this.width}px;
-      height: ${this.height}px;
-      display: flex;
-      flex-direction: column;
-      z-index: 1000;
-      overflow: hidden;
-      border-radius: ${isMat ? '4px' : '12px'};
-      background: ${this.backgroundColor || colors.viewerBg};
-      box-shadow: ${isMat ? '0 4px 16px ' + colors.shadow : '0 2px 12px ' + colors.pageShadow};
-      box-sizing: border-box;
-      font-family: ${isMat ? "'Roboto', sans-serif" : "-apple-system, BlinkMacSystemFont, sans-serif"};
-    `;
-
-    // Toolbar
-    if (this.showToolbar) {
-      this._toolbarEl = this._buildToolbar();
-      this._containerEl.appendChild(this._toolbarEl);
-    }
-
-    // Barre de recherche
-    this._searchBarEl = this._buildSearchBar();
-    this._containerEl.appendChild(this._searchBarEl);
-
-    // Corps principal (miniatures + visionneuse)
-    const body = document.createElement('div');
-    body.style.cssText = `
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-    `;
-
-    // Panneau miniatures
-    if (this.showThumbnails) {
-      this._thumbsEl = this._buildThumbnailsPanel();
-      body.appendChild(this._thumbsEl);
-    }
-
-    // Zone de visualisation
-    this._viewerEl = document.createElement('div');
-    this._viewerEl.style.cssText = `
-      flex: 1;
-      overflow: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 16px;
-      gap: 12px;
-      background: ${colors.viewerBg};
-      box-sizing: border-box;
-      scroll-behavior: smooth;
-    `;
-
-    // Événements scroll → sync page courante
-    this._viewerEl.addEventListener('scroll', () => this._onViewerScroll());
-
-    // Zoom à la molette
-    this._viewerEl.addEventListener('wheel', (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        const delta = e.deltaY > 0 ? -0.1 : 0.1;
-        this._setScale(this.scale + delta);
-      }
-    }, { passive: false });
-
-    body.appendChild(this._viewerEl);
-    this._containerEl.appendChild(body);
-    document.body.appendChild(this._containerEl);
-
-    // Charger le PDF si src fournie
-    if (this.src) this._loadPDF(this.src);
-    else this._renderEmptyState();
-  }
-
-  // ─── Toolbar ──────────────────────────────────────────────────────────────────
-
-  _buildToolbar() {
-    const isMat  = this.platform === 'material';
-    const colors = this._colors;
-
-    const toolbar = document.createElement('div');
-    toolbar.style.cssText = `
-      display: flex;
-      align-items: center;
-      gap: ${isMat ? 4 : 2}px;
-      padding: 0 ${isMat ? 12 : 8}px;
-      height: ${this._toolbarHeight}px;
-      background: ${this._primary};
-      color: ${colors.onPrimary};
-      flex-shrink: 0;
-      box-shadow: ${isMat ? '0 2px 4px rgba(0,0,0,0.2)' : 'none'};
-      border-bottom: ${isMat ? 'none' : `1px solid ${colors.toolbarBorder || '#C6C6C8'}`};
-      overflow: hidden;
-      user-select: none;
-      -webkit-user-select: none;
-    `;
-
-    // Titre / Nom de fichier
-    const title = document.createElement('span');
-    title.id = 'pdf_title';
-    title.style.cssText = `
-      flex: 1;
-      font-size: ${isMat ? 16 : 17}px;
-      font-weight: ${isMat ? '500' : '600'};
-      color: ${colors.onPrimary};
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    `;
-    title.textContent = typeof this.src === 'string'
-      ? this.src.split('/').pop() || 'Document.pdf'
-      : 'Document.pdf';
-    toolbar.appendChild(title);
-
-    // Groupe navigation
-    const navGroup = document.createElement('div');
-    navGroup.style.cssText = `display: flex; align-items: center; gap: 4px;`;
-
-    // Bouton page précédente
-    const btnPrev = this._makeToolbarBtn(this._svgChevron('left'), 'Page précédente');
-    btnPrev.id = 'pdf_btn_prev';
-    btnPrev.addEventListener('click', () => this.goToPreviousPage());
-
-    // Input page
-    this._pageInput = document.createElement('input');
-    this._pageInput.type = 'text';
-    this._pageInput.value = '1';
-    this._pageInput.style.cssText = `
-      width: 40px;
-      height: 28px;
-      text-align: center;
-      border: none;
-      border-radius: ${isMat ? 4 : 6}px;
-      background: rgba(255,255,255,0.2);
-      color: white;
-      font-size: 14px;
-      outline: none;
-    `;
-    this._pageInput.addEventListener('change', () => {
-      const p = parseInt(this._pageInput.value);
-      if (p >= 1 && p <= this.totalPages) this.goToPage(p);
-      else this._pageInput.value = this.currentPage;
-    });
-
-    this._pageTotalLabel = document.createElement('span');
-    this._pageTotalLabel.style.cssText = `font-size: 14px; color: rgba(255,255,255,0.8);`;
-    this._pageTotalLabel.textContent = '/ -';
-
-    // Bouton page suivante
-    const btnNext = this._makeToolbarBtn(this._svgChevron('right'), 'Page suivante');
-    btnNext.id = 'pdf_btn_next';
-    btnNext.addEventListener('click', () => this.goToNextPage());
-
-    navGroup.appendChild(btnPrev);
-    navGroup.appendChild(this._pageInput);
-    navGroup.appendChild(this._pageTotalLabel);
-    navGroup.appendChild(btnNext);
-    toolbar.appendChild(navGroup);
-
-    // Séparateur
-    toolbar.appendChild(this._makeSep());
-
-    // Zoom
-    const zoomGroup = document.createElement('div');
-    zoomGroup.style.cssText = `display: flex; align-items: center; gap: 4px;`;
-
-    const btnZoomOut = this._makeToolbarBtn('−', 'Dézoomer');
-    btnZoomOut.style.fontSize = '20px';
-    btnZoomOut.addEventListener('click', () => this._setScale(this.scale - 0.25));
-
-    this._scaleLabel = document.createElement('span');
-    this._scaleLabel.style.cssText = `
-      font-size: 13px; color: rgba(255,255,255,0.9);
-      min-width: 40px; text-align: center;
-    `;
-    this._scaleLabel.textContent = '100%';
-
-    const btnZoomIn = this._makeToolbarBtn('+', 'Zoomer');
-    btnZoomIn.style.fontSize = '20px';
-    btnZoomIn.addEventListener('click', () => this._setScale(this.scale + 0.25));
-
-    // Bouton zoom automatique
-    const btnZoomFit = this._makeToolbarBtn(this._svgFit(), 'Ajuster à la page');
-    btnZoomFit.addEventListener('click', () => this._fitToWidth());
-
-    zoomGroup.appendChild(btnZoomOut);
-    zoomGroup.appendChild(this._scaleLabel);
-    zoomGroup.appendChild(btnZoomIn);
-    zoomGroup.appendChild(btnZoomFit);
-    toolbar.appendChild(zoomGroup);
-
-    // Outils supplémentaires
-    if (this.allowRotate || this.allowSearch || this.allowDownload || this.allowPrint || this.allowFullscreen) {
-      toolbar.appendChild(this._makeSep());
-    }
-
-    if (this.allowRotate) {
-      const btnRotate = this._makeToolbarBtn(this._svgRotate(), 'Rotation 90°');
-      btnRotate.addEventListener('click', () => this._rotate());
-      toolbar.appendChild(btnRotate);
-    }
-
-    if (this.allowSearch) {
-      const btnSearch = this._makeToolbarBtn(this._svgSearch(), 'Rechercher');
-      btnSearch.addEventListener('click', () => this._toggleSearch());
-      toolbar.appendChild(btnSearch);
-    }
-
-    if (this.allowDownload) {
-      const btnDl = this._makeToolbarBtn(this._svgDownload(), 'Télécharger');
-      btnDl.addEventListener('click', () => this._download());
-      toolbar.appendChild(btnDl);
-    }
-
-    if (this.allowPrint) {
-      const btnPrint = this._makeToolbarBtn(this._svgPrint(), 'Imprimer');
-      btnPrint.addEventListener('click', () => this._print());
-      toolbar.appendChild(btnPrint);
-    }
-
-    if (this.allowFullscreen) {
-      const btnFs = this._makeToolbarBtn(this._svgFullscreen(), 'Plein écran');
-      btnFs.addEventListener('click', () => this._toggleFullscreen());
-      toolbar.appendChild(btnFs);
-    }
-
-    return toolbar;
-  }
-
-  _makeToolbarBtn(content, title) {
-    const btn = document.createElement('button');
-    btn.innerHTML = content;
-    btn.title = title;
-    btn.style.cssText = `
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 34px;
-      height: 34px;
-      border: none;
-      border-radius: ${this.platform === 'material' ? 4 : 6}px;
-      background: transparent;
-      color: white;
-      cursor: pointer;
-      padding: 0;
-      transition: background 0.15s;
-      flex-shrink: 0;
-    `;
-    btn.addEventListener('mouseenter', () => btn.style.background = 'rgba(255,255,255,0.2)');
-    btn.addEventListener('mouseleave', () => btn.style.background = 'transparent');
-    return btn;
-  }
-
-  _makeSep() {
-    const sep = document.createElement('div');
-    sep.style.cssText = `width:1px; height:24px; background:rgba(255,255,255,0.3); margin:0 4px; flex-shrink:0;`;
-    return sep;
-  }
-
-  // ─── Barre de recherche ───────────────────────────────────────────────────────
-
-  _buildSearchBar() {
-    const isMat = this.platform === 'material';
-    const bar = document.createElement('div');
-    bar.style.cssText = `
-      display: none;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background: ${isMat ? this.m3Colors.surfaceVariant : '#F2F2F7'};
-      border-bottom: 1px solid ${isMat ? this.m3Colors.outlineVariant : '#C6C6C8'};
-      flex-shrink: 0;
-    `;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Rechercher dans le document...';
-    input.style.cssText = `
-      flex: 1;
-      border: 1px solid ${isMat ? this.m3Colors.outline : '#C6C6C8'};
-      border-radius: ${isMat ? 4 : 8}px;
-      padding: 6px 10px;
-      font-size: 14px;
-      outline: none;
-      background: white;
-    `;
-
-    const btnClose = document.createElement('button');
-    btnClose.innerHTML = '✕';
-    btnClose.style.cssText = `
-      border: none; background: transparent; cursor: pointer;
-      font-size: 16px; color: ${isMat ? this.m3Colors.onSurfaceVariant : '#8E8E93'};
-    `;
-    btnClose.addEventListener('click', () => this._toggleSearch());
-
-    bar.appendChild(input);
-    bar.appendChild(btnClose);
-    this._searchInput = input;
-    return bar;
-  }
-
-  _toggleSearch() {
-    this._searchOpen = !this._searchOpen;
-    this._searchBarEl.style.display = this._searchOpen ? 'flex' : 'none';
-    if (this._searchOpen) this._searchInput.focus();
-  }
-
-  // ─── Panneau miniatures ───────────────────────────────────────────────────────
-
-  _buildThumbnailsPanel() {
-    const isMat = this.platform === 'material';
-    const panel = document.createElement('div');
-    panel.style.cssText = `
-      width: ${this._thumbsWidth}px;
-      height: 100%;
-      overflow-y: auto;
-      background: ${this._colors.thumbsBg};
-      border-right: 1px solid ${this._colors.thumbBorder};
-      padding: 8px;
-      box-sizing: border-box;
-      flex-shrink: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      align-items: center;
-      scrollbar-width: thin;
-    `;
-    return panel;
-  }
-
-  // ─── Chargement PDF ───────────────────────────────────────────────────────────
-
-  /**
-   * Charge et affiche un PDF
-   * @param {string|Uint8Array} src
-   */
   async _loadPDF(src) {
-    this.loading = true;
-    this.error   = null;
-    this._renderLoadingState();
-
+    this.loading      = true;
+    this.error        = null;
+    this._pageImages  = {};
+    this._thumbImages = {};
+    this._scrollY     = 0;
+    this._redraw();
     try {
-      const pdfjsLib = await this._loadPDFJS();
-      const loadingTask = pdfjsLib.getDocument(
-        typeof src === 'string' ? src : { data: src }
-      );
-      this._pdfDoc = await loadingTask.promise;
-      this.totalPages  = this._pdfDoc.numPages;
-      this.loading     = false;
-
-      // Met à jour toolbar
-      if (this._pageTotalLabel) this._pageTotalLabel.textContent = `/ ${this.totalPages}`;
-
-      // Met à jour le titre si URL
-      if (typeof src === 'string' && this._containerEl) {
-        const t = this._containerEl.querySelector('#pdf_title');
-        if (t) t.textContent = src.split('/').pop();
-      }
-
-      // Vide la visionneuse
-      this._viewerEl.innerHTML = '';
-
-      // Rend toutes les pages
+      const lib  = await this._loadPDFJS();
+      const task = lib.getDocument(typeof src === 'string' ? src : { data: src });
+      this._pdfDoc    = await task.promise;
+      this.totalPages = this._pdfDoc.numPages;
+      
+      // Charger les pages de manière asynchrone sans bloquer
+      const loadPromises = [];
       for (let p = 1; p <= this.totalPages; p++) {
-        await this._renderPage(p);
-        if (this.showThumbnails) await this._renderThumbnail(p);
+        loadPromises.push(this._renderPage(p));
+        loadPromises.push(this._renderThumb(p));
       }
-
-      // Aller à la page initiale
-      this.scrollToPage(this.currentPage);
+      
+      await Promise.all(loadPromises);
+      
+      this.loading = false;
+      this._computeMaxScroll();
       this.onLoad(this.totalPages);
-
+      this._redraw();
     } catch (err) {
       this.loading = false;
-      this.error   = err.message || 'Erreur lors du chargement du PDF';
-      this._renderErrorState();
+      this.error   = err.message || 'Erreur de chargement';
       this.onErrorCb(this.error);
+      this._redraw();
     }
   }
 
-  /**
-   * Rend une page PDF dans la zone de visualisation
-   * @param {number} pageNum
-   * @private
-   */
-  async _renderPage(pageNum) {
-    const page     = await this._pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: this.scale, rotation: this.rotation });
-
-    // Wrapper de page
-    const pageWrapper = document.createElement('div');
-    pageWrapper.id = `pdf_page_${pageNum}`;
-    pageWrapper.dataset.page = pageNum;
-    pageWrapper.style.cssText = `
-      position: relative;
-      box-shadow: 0 2px 8px ${this._colors.pageShadow};
-      flex-shrink: 0;
-      background: ${this.pageBackground};
-      line-height: 0;
-    `;
-
-    const pageCanvas = document.createElement('canvas');
-    pageCanvas.width  = viewport.width;
-    pageCanvas.height = viewport.height;
-    pageCanvas.style.cssText = `display: block; max-width: 100%;`;
-
-    pageWrapper.appendChild(pageCanvas);
-
-    // Numéro de page (en bas)
-    const pageLabel = document.createElement('div');
-    pageLabel.style.cssText = `
-      position: absolute;
-      bottom: 6px;
-      right: 10px;
-      font-size: 11px;
-      color: #888;
-      line-height: 1;
-      pointer-events: none;
-    `;
-    pageLabel.textContent = `${pageNum} / ${this.totalPages}`;
-    pageWrapper.appendChild(pageLabel);
-
-    this._viewerEl.appendChild(pageWrapper);
-    this._pageCanvases[pageNum] = pageCanvas;
-
-    const ctx = pageCanvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-  }
-
-  /**
-   * Rend une miniature de page
-   * @param {number} pageNum
-   * @private
-   */
-  async _renderThumbnail(pageNum) {
-    if (!this._thumbsEl) return;
-    const page     = await this._pdfDoc.getPage(pageNum);
-    const viewport = page.getViewport({ scale: 0.2 });
-
-    const thumbWrapper = document.createElement('div');
-    thumbWrapper.id = `pdf_thumb_${pageNum}`;
-    thumbWrapper.dataset.page = pageNum;
-    thumbWrapper.style.cssText = `
-      cursor: pointer;
-      border: 2px solid ${pageNum === this.currentPage ? this._colors.thumbActive : this._colors.thumbBorder};
-      border-radius: 4px;
-      overflow: hidden;
-      transition: border-color 0.2s;
-    `;
-    thumbWrapper.addEventListener('click', () => {
-      this.goToPage(pageNum);
-      this._highlightThumbnail(pageNum);
-    });
-
-    const thumbCanvas = document.createElement('canvas');
-    thumbCanvas.width  = viewport.width;
-    thumbCanvas.height = viewport.height;
-    thumbCanvas.style.cssText = `display: block; width: 100%;`;
-    thumbWrapper.appendChild(thumbCanvas);
-
-    const numLabel = document.createElement('div');
-    numLabel.style.cssText = `
-      text-align: center;
-      font-size: 10px;
-      color: #666;
-      padding: 2px;
-      background: white;
-    `;
-    numLabel.textContent = pageNum;
-    thumbWrapper.appendChild(numLabel);
-
-    this._thumbsEl.appendChild(thumbWrapper);
-    this._thumbCanvases[pageNum] = thumbWrapper;
-
-    const ctx = thumbCanvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport }).promise;
-  }
-
-  /**
-   * Met en surbrillance la miniature de la page active
-   * @param {number} pageNum
-   * @private
-   */
-  _highlightThumbnail(pageNum) {
-    if (!this._thumbsEl) return;
-    this._thumbsEl.querySelectorAll('[data-page]').forEach(el => {
-      el.style.borderColor = this._colors.thumbBorder;
-    });
-    const active = this._thumbsEl.querySelector(`#pdf_thumb_${pageNum}`);
-    if (active) active.style.borderColor = this._colors.thumbActive;
-  }
-
-  /**
-   * Détecte la page visible lors du scroll
-   * @private
-   */
-  _onViewerScroll() {
-    if (!this._viewerEl) return;
-    const scrollTop = this._viewerEl.scrollTop + this._viewerEl.clientHeight / 2;
-    let nearest = 1;
-    let nearestDist = Infinity;
-
-    this._viewerEl.querySelectorAll('[data-page]').forEach(el => {
-      const p    = parseInt(el.dataset.page);
-      const dist = Math.abs(el.offsetTop - scrollTop);
-      if (dist < nearestDist) { nearestDist = dist; nearest = p; }
-    });
-
-    if (nearest !== this.currentPage) {
-      this.currentPage = nearest;
-      if (this._pageInput)    this._pageInput.value = nearest;
-      this.onPageChange(this.currentPage, this.totalPages);
-      this._highlightThumbnail(nearest);
+  async _renderPage(p) {
+    try {
+      const page = await this._pdfDoc.getPage(p);
+      const vp   = page.getViewport({ scale: this.scale, rotation: this.rotation });
+      const off  = new OffscreenCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
+      await page.render({ canvasContext: off.getContext('2d'), viewport: vp }).promise;
+      this._pageImages[p] = await createImageBitmap(off);
+    } catch (err) {
+      console.error(`Erreur rendu page ${p}:`, err);
     }
   }
 
-  // ─── États visuels (vide, chargement, erreur) ─────────────────────────────────
-
-  _renderEmptyState() {
-    this._viewerEl.innerHTML = '';
-    const wrap = document.createElement('div');
-    wrap.style.cssText = `
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; height: 100%; gap: 16px; opacity: 0.5;
-    `;
-    wrap.innerHTML = `
-      <svg width="64" height="64" viewBox="0 0 24 24" fill="${this._colors.onSurfaceVariant || '#49454F'}">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z"/>
-        <polyline points="14,2 14,8 20,8" fill="none" stroke="white" stroke-width="1.5"/>
-        <text x="7" y="19" font-size="5" fill="white" font-weight="bold">PDF</text>
-      </svg>
-      <p style="margin:0; font-size:15px; color:${this._colors.onSurfaceVariant || '#49454F'}">
-        Aucun document chargé
-      </p>
-    `;
-    this._viewerEl.appendChild(wrap);
-  }
-
-  _renderLoadingState() {
-    this._viewerEl.innerHTML = '';
-    const wrap = document.createElement('div');
-    wrap.style.cssText = `
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; height: 100%; gap: 16px;
-    `;
-
-    const spinner = document.createElement('div');
-    spinner.style.cssText = `
-      width: 40px; height: 40px;
-      border: 4px solid ${this._colors.thumbBorder};
-      border-top-color: ${this._primary};
-      border-radius: 50%;
-      animation: pdf_spin 0.8s linear infinite;
-    `;
-
-    if (!document.querySelector('#pdf_spinner_style')) {
-      const s = document.createElement('style');
-      s.id = 'pdf_spinner_style';
-      s.textContent = `@keyframes pdf_spin { to { transform: rotate(360deg); } }`;
-      document.head.appendChild(s);
+  async _renderThumb(p) {
+    try {
+      const page = await this._pdfDoc.getPage(p);
+      const vp   = page.getViewport({ scale: 0.18, rotation: this.rotation });
+      const off  = new OffscreenCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
+      await page.render({ canvasContext: off.getContext('2d'), viewport: vp }).promise;
+      this._thumbImages[p] = await createImageBitmap(off);
+    } catch (err) {
+      console.error(`Erreur rendu miniature ${p}:`, err);
     }
-
-    const label = document.createElement('p');
-    label.style.cssText = `margin:0; font-size:15px; color:${this._colors.onSurfaceVariant || '#49454F'};`;
-    label.textContent = 'Chargement du document...';
-
-    wrap.appendChild(spinner);
-    wrap.appendChild(label);
-    this._viewerEl.appendChild(wrap);
   }
 
-  _renderErrorState() {
-    this._viewerEl.innerHTML = '';
-    const wrap = document.createElement('div');
-    wrap.style.cssText = `
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; height: 100%; gap: 16px; padding: 24px;
-    `;
-    wrap.innerHTML = `
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="${this._colors.error || '#BA1A1A'}">
-        <circle cx="12" cy="12" r="10"/>
-        <line x1="12" y1="8" x2="12" y2="12" stroke="white" stroke-width="2"/>
-        <circle cx="12" cy="16" r="1" fill="white"/>
-      </svg>
-      <p style="margin:0; font-size:15px; color:${this._colors.error || '#BA1A1A'}; text-align:center;">
-        ${this.error}
-      </p>
-    `;
-
-    // Bouton réessayer
-    const retryBtn = document.createElement('button');
-    retryBtn.textContent = 'Réessayer';
-    retryBtn.style.cssText = `
-      padding: 8px 20px;
-      background: ${this._primary};
-      color: white;
-      border: none;
-      border-radius: ${this.platform === 'material' ? 20 : 8}px;
-      cursor: pointer;
-      font-size: 14px;
-    `;
-    retryBtn.addEventListener('click', () => {
-      if (this.src) this._loadPDF(this.src);
-    });
-
-    wrap.appendChild(retryBtn);
-    this._viewerEl.appendChild(wrap);
-  }
-
-  // ─── Actions ──────────────────────────────────────────────────────────────────
-
-  /**
-   * Change le niveau de zoom
-   * @param {number} newScale
-   * @private
-   */
-  _setScale(newScale) {
-    this.scale = Math.max(this.minScale, Math.min(this.maxScale, newScale));
-    this.scale = Math.round(this.scale * 100) / 100;
-    if (this._scaleLabel) this._scaleLabel.textContent = `${Math.round(this.scale * 100)}%`;
-    this.onScaleChange(this.scale);
-    if (this._pdfDoc) this._reRenderAll();
-  }
-
-  /**
-   * Ajuste le zoom à la largeur du viewer
-   * @private
-   */
-  async _fitToWidth() {
-    if (!this._pdfDoc) return;
-    const page     = await this._pdfDoc.getPage(1);
-    const viewport = page.getViewport({ scale: 1 });
-    const availW   = this._viewerEl.clientWidth - 32;
-    const ratio    = availW / viewport.width;
-    this._setScale(ratio);
-  }
-
-  /**
-   * Re-rend toutes les pages (après zoom ou rotation)
-   * @private
-   */
   async _reRenderAll() {
-    this._viewerEl.innerHTML = '';
-    this._pageCanvases = {};
+    if (!this._pdfDoc) return;
+    this._pageImages = {}; 
+    this._thumbImages = {};
+    this.loading = true; 
+    this._redraw();
+    
+    const loadPromises = [];
     for (let p = 1; p <= this.totalPages; p++) {
-      await this._renderPage(p);
+      loadPromises.push(this._renderPage(p));
+      loadPromises.push(this._renderThumb(p));
     }
-    this.scrollToPage(this.currentPage);
+    
+    await Promise.all(loadPromises);
+    
+    this.loading = false;
+    this._computeMaxScroll();
+    this._scrollY = Math.min(this._scrollY, this._maxScrollY);
+    this._redraw();
   }
 
-  /**
-   * Effectue une rotation de 90°
-   * @private
-   */
-  _rotate() {
-    this.rotation = (this.rotation + 90) % 360;
-    if (this._pdfDoc) this._reRenderAll();
+  // ─── Layout & scroll ─────────────────────────────────────────────────────────
+
+  _computeMaxScroll() {
+    const vr = this._viewerRect;
+    let total = 16;
+    for (let p = 1; p <= this.totalPages; p++) {
+      total += (this._pageImages[p] ? this._pageImages[p].height : 200) + 16;
+    }
+    this._maxScrollY = Math.max(0, total - vr.h);
   }
 
-  /**
-   * Télécharge le PDF
-   * @private
-   */
-  _download() {
-    if (!this.src || typeof this.src !== 'string') return;
-    const a = document.createElement('a');
-    a.href = this.src;
-    a.download = this.src.split('/').pop() || 'document.pdf';
-    a.click();
+  _pageScrollOffset(pageNum) {
+    let y = 16;
+    for (let p = 1; p < pageNum; p++) {
+      y += (this._pageImages[p] ? this._pageImages[p].height : 200) + 16;
+    }
+    return y;
   }
 
-  /**
-   * Imprime le PDF
-   * @private
-   */
-  _print() {
-    if (!this.src || typeof this.src !== 'string') return;
-    const w = window.open(this.src);
-    if (w) w.addEventListener('load', () => w.print());
-  }
-
-  /**
-   * Bascule en plein écran
-   * @private
-   */
-  _toggleFullscreen() {
-    if (!this._containerEl) return;
-    this._fullscreen = !this._fullscreen;
-    if (this._fullscreen) {
-      this._savedStyle = {
-        left: this._containerEl.style.left,
-        top:  this._containerEl.style.top,
-        width:this._containerEl.style.width,
-        height:this._containerEl.style.height,
-        zIndex:this._containerEl.style.zIndex,
-        borderRadius: this._containerEl.style.borderRadius,
-      };
-      this._containerEl.style.cssText += `
-        left: 0 !important;
-        top: 0 !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        z-index: 99999 !important;
-        border-radius: 0 !important;
-      `;
-    } else {
-      if (this._savedStyle) {
-        Object.assign(this._containerEl.style, this._savedStyle);
+  _syncPage() {
+    if (!this.totalPages) return;
+    const mid = this._scrollY + this._viewerRect.h / 2;
+    let y = 16;
+    for (let p = 1; p <= this.totalPages; p++) {
+      const h = this._pageImages[p] ? this._pageImages[p].height : 200;
+      if (mid <= y + h || p === this.totalPages) {
+        if (p !== this.currentPage) { 
+          this.currentPage = p; 
+          this.onPageChange(p, this.totalPages); 
+        }
+        return;
       }
+      y += h + 16;
     }
   }
 
-  // ─── Navigation ───────────────────────────────────────────────────────────────
+  // ─── Dessin principal ────────────────────────────────────────────────────────
 
-  /**
-   * Navigue vers une page spécifique
-   * @param {number} page
-   */
-  goToPage(page) {
-    if (!this._pdfDoc || page < 1 || page > this.totalPages) return;
-    this.currentPage = page;
-    if (this._pageInput) this._pageInput.value = page;
-    this.scrollToPage(page);
-    this._highlightThumbnail(page);
-    this.onPageChange(this.currentPage, this.totalPages);
-  }
-
-  /**
-   * Fait défiler jusqu'à une page
-   * @param {number} page
-   */
-  scrollToPage(page) {
-    const el = this._viewerEl && this._viewerEl.querySelector(`#pdf_page_${page}`);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  /**
-   * Page précédente
-   */
-  goToPreviousPage() {
-    if (this.currentPage > 1) this.goToPage(this.currentPage - 1);
-  }
-
-  /**
-   * Page suivante
-   */
-  goToNextPage() {
-    if (this.currentPage < this.totalPages) this.goToPage(this.currentPage + 1);
-  }
-
-  // ─── API publique ─────────────────────────────────────────────────────────────
-
-  /**
-   * Charge un nouveau document PDF
-   * @param {string|Uint8Array} src - URL ou données binaires
-   */
-  load(src) {
-    this.src = src;
-    if (this._viewerEl) {
-      this._pdfDoc = null;
-      this._pageCanvases = {};
-      this._thumbCanvases = {};
-      if (this._thumbsEl) this._thumbsEl.innerHTML = '';
-      this._loadPDF(src);
-    }
-  }
-
-  /**
-   * Zoom à un niveau précis
-   * @param {number} scale - Facteur de zoom (ex: 1.5 = 150%)
-   */
-  setScale(scale) {
-    this._setScale(scale);
-  }
-
-  /**
-   * Retourne les métadonnées du document
-   * @returns {Promise<Object>}
-   */
-  async getMetadata() {
-    if (!this._pdfDoc) return null;
-    return this._pdfDoc.getMetadata();
-  }
-
-  // ─── SVG Icons ────────────────────────────────────────────────────────────────
-
-  _svgChevron(dir) {
-    const pts = dir === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6';
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round">
-      <polyline points="${pts}"/>
-    </svg>`;
-  }
-
-  _svgFit() {
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
-      <polyline points="15,3 21,3 21,9"/><polyline points="9,21 3,21 3,15"/>
-      <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
-    </svg>`;
-  }
-
-  _svgRotate() {
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
-      <path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 .49-4.46"/>
-    </svg>`;
-  }
-
-  _svgSearch() {
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>`;
-  }
-
-  _svgDownload() {
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-      <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-    </svg>`;
-  }
-
-  _svgPrint() {
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
-      <polyline points="6 9 6 2 18 2 18 9"/>
-      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
-      <rect x="6" y="14" width="12" height="8"/>
-    </svg>`;
-  }
-
-  _svgFullscreen() {
-    return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round">
-      <polyline points="15 3 21 3 21 9"/><polyline points="9 3 3 3 3 9"/>
-      <polyline points="21 15 21 21 15 21"/><polyline points="3 15 3 21 9 21"/>
-    </svg>`;
-  }
-
-  // ─── Rendu Canvas (shell) ─────────────────────────────────────────────────────
-
-  /**
-   * Rendu Canvas : monte l'overlay DOM et synchronise la position
-   * @param {CanvasRenderingContext2D} ctx
-   */
   draw(ctx) {
+    this._registerEvents(); // one-shot
+
     ctx.save();
+    // Clip global
+    ctx.beginPath();
+    this._rr(ctx, this.x, this.y, this.width, this.height, this._isMat ? 4 : 12);
+    ctx.clip();
 
-    if (!this._mounted) this._mount();
-
-    // Synchronise la position
-    if (this._containerEl) {
-      const canvas = this.framework.canvas;
-      const rect   = canvas.getBoundingClientRect();
-      this._containerEl.style.left   = `${rect.left + this.x}px`;
-      this._containerEl.style.top    = `${rect.top  + this.y - (this.framework.scrollOffset || 0)}px`;
-      this._containerEl.style.width  = `${this.width}px`;
-      this._containerEl.style.height = `${this.height}px`;
-    }
-
-    // Fond Canvas (zone réservée) — invisible car l'overlay DOM le couvre
+    // Fond
     ctx.fillStyle = this.backgroundColor || this._colors.viewerBg;
     ctx.fillRect(this.x, this.y, this.width, this.height);
+
+    if (this.totalPages > 1) this._drawThumbs(ctx);
+    this._drawViewer(ctx);
+    if (this.showToolbar)    this._drawToolbar(ctx);
+    if (this._searchOpen)    this._drawSearchBar(ctx);
+
+    // Bordure
+    ctx.strokeStyle = this._isMat ? 'rgba(0,0,0,0.12)' : (this._colors.toolbarBorder || '#C6C6C8');
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    this._rr(ctx, this.x, this.y, this.width, this.height, this._isMat ? 4 : 12);
+    ctx.stroke();
+
+    ctx.restore();
+    
+    // Restaurer le hover pour le prochain frame
+    if (this._hoveredBtn && this._inSelf(this._lastMouseX, this._lastMouseY)) {
+      // Le hover sera redessiné au prochain move
+    }
+  }
+
+  // ─── Zone viewer ─────────────────────────────────────────────────────────────
+
+  _drawViewer(ctx) {
+    const vr = this._viewerRect;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(vr.x, vr.y, vr.w, vr.h); ctx.clip();
+    ctx.fillStyle = this._colors.viewerBg;
+    ctx.fillRect(vr.x, vr.y, vr.w, vr.h);
+
+    const hasImages = Object.keys(this._pageImages).length > 0;
+    if      (this.loading && !hasImages)               this._drawLoading(ctx, vr);
+    else if (this.error   && !hasImages)               this._drawError(ctx, vr);
+    else if (!this.totalPages && !this.loading)        this._drawEmpty(ctx, vr);
+    else                                               this._drawPages(ctx, vr);
 
     ctx.restore();
   }
 
-  /**
-   * Vérifie si un point est dans le composant
-   */
+  _drawPages(ctx, vr) {
+    const pad = 16;
+    let y = vr.y + pad - this._scrollY;
+
+    for (let p = 1; p <= this.totalPages; p++) {
+      const img = this._pageImages[p];
+      const ph  = img ? img.height : 200;
+      // Largeur : on respecte la vraie largeur de la page rendue, mais on ne dépasse pas le viewer
+      const pw  = img ? Math.min(img.width, vr.w - pad * 2) : vr.w - pad * 2;
+      const px  = vr.x + (vr.w - pw) / 2;
+
+      // Dessin uniquement si la page est dans la zone visible
+      if (y + ph >= vr.y && y <= vr.y + vr.h) {
+        ctx.shadowColor   = this._colors.pageShadow;
+        ctx.shadowBlur    = 8;
+        ctx.shadowOffsetY = 2;
+        ctx.fillStyle     = this.pageBackground;
+        ctx.fillRect(px, y, pw, ph);
+        ctx.shadowBlur = 0; 
+        ctx.shadowOffsetY = 0;
+
+        if (img) {
+          ctx.drawImage(img, 0, 0, img.width, img.height, px, y, pw, ph);
+        } else {
+          ctx.fillStyle = '#ccc'; 
+          ctx.font = '13px sans-serif';
+          ctx.textAlign = 'center'; 
+          ctx.textBaseline = 'middle';
+          ctx.fillText(`Page ${p}…`, px + pw / 2, y + ph / 2);
+        }
+
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'; 
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right'; 
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`${p} / ${this.totalPages}`, px + pw - 6, y + ph - 4);
+      }
+
+      y += ph + pad;
+    }
+
+    this._drawScrollbar(ctx, vr);
+  }
+
+  _drawScrollbar(ctx, vr) {
+    if (this._maxScrollY <= 0) return;
+    const tw = 5, tr = 3;
+    const tx = vr.x + vr.w - tw - 3;
+    const ty = vr.y + 4, th = vr.h - 8;
+    const ratio  = vr.h / (vr.h + this._maxScrollY);
+    const thumbH = Math.max(24, th * ratio);
+    const thumbY = ty + (this._scrollY / this._maxScrollY) * (th - thumbH);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)'; 
+    this._rr(ctx, tx, ty, tw, th, tr); 
+    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.32)'; 
+    this._rr(ctx, tx, thumbY, tw, thumbH, tr); 
+    ctx.fill();
+  }
+
+  // ─── États visuels ───────────────────────────────────────────────────────────
+
+  _drawLoading(ctx, vr) {
+    const cx = vr.x + vr.w / 2, cy = vr.y + vr.h / 2 - 20;
+    ctx.strokeStyle = 'rgba(0,0,0,0.1)'; 
+    ctx.lineWidth = 4;
+    ctx.beginPath(); 
+    ctx.arc(cx, cy, 22, 0, Math.PI * 2); 
+    ctx.stroke();
+    ctx.strokeStyle = this._primary; 
+    ctx.lineWidth = 4; 
+    ctx.lineCap = 'round';
+    ctx.beginPath(); 
+    ctx.arc(cx, cy, 22, this._spinAngle, this._spinAngle + 1.3); 
+    ctx.stroke();
+    ctx.fillStyle = this._colors.onSurfaceVariant || '#49454F';
+    ctx.font = '13px sans-serif'; 
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'top';
+    ctx.fillText('Chargement...', cx, cy + 32);
+  }
+
+  _drawEmpty(ctx, vr) {
+    const cx = vr.x + vr.w / 2, cy = vr.y + vr.h / 2 - 20;
+    ctx.globalAlpha = 0.35; 
+    ctx.fillStyle = this._colors.onSurfaceVariant || '#49454F';
+    ctx.beginPath();
+    const fx = cx - 20, fy = cy - 26;
+    ctx.moveTo(fx + 6, fy); 
+    ctx.lineTo(fx + 28, fy); 
+    ctx.lineTo(fx + 40, fy + 14);
+    ctx.lineTo(fx + 40, fy + 54); 
+    ctx.quadraticCurveTo(fx + 40, fy + 58, fx + 36, fy + 58);
+    ctx.lineTo(fx + 4, fy + 58); 
+    ctx.quadraticCurveTo(fx, fy + 58, fx, fy + 54);
+    ctx.lineTo(fx, fy + 6); 
+    ctx.quadraticCurveTo(fx, fy, fx + 6, fy);
+    ctx.closePath(); 
+    ctx.fill();
+    ctx.globalAlpha = 1; 
+    ctx.fillStyle = this._colors.onSurfaceVariant || '#49454F';
+    ctx.font = '13px sans-serif'; 
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'top';
+    ctx.fillText('Aucun document chargé', cx, cy + 42);
+  }
+
+  _drawError(ctx, vr) {
+    const cx = vr.x + vr.w / 2, cy = vr.y + vr.h / 2 - 30;
+    const err = this._colors.error || '#BA1A1A';
+    ctx.fillStyle = err; 
+    ctx.beginPath(); 
+    ctx.arc(cx, cy, 24, 0, Math.PI * 2); 
+    ctx.fill();
+    ctx.fillStyle = '#fff'; 
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'middle'; 
+    ctx.fillText('!', cx, cy);
+    ctx.fillStyle = err; 
+    ctx.font = '13px sans-serif'; 
+    ctx.textBaseline = 'top';
+    ctx.fillText((this.error || 'Erreur').substring(0, 60), cx, cy + 34);
+    const bx = cx - 48, by = cy + 62;
+    this._retryBtn = { x: bx, y: by, w: 96, h: 30 };
+    
+    // Hover effect
+    if (this._hoveredBtn === 'retry') {
+      ctx.fillStyle = this._primary + 'dd';
+    } else {
+      ctx.fillStyle = this._primary;
+    }
+    this._rr(ctx, bx, by, 96, 30, this._isMat ? 15 : 8); 
+    ctx.fill();
+    ctx.fillStyle = '#fff'; 
+    ctx.font = '13px sans-serif'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Réessayer', cx, by + 15);
+  }
+
+  // ─── Miniatures ──────────────────────────────────────────────────────────────
+
+  _drawThumbs(ctx) {
+    const tr = this._thumbRect;
+    ctx.fillStyle = this._colors.thumbsBg; 
+    ctx.fillRect(tr.x, tr.y, tr.w, tr.h);
+    ctx.strokeStyle = this._colors.thumbBorder; 
+    ctx.lineWidth = 1;
+    ctx.beginPath(); 
+    ctx.moveTo(tr.x + tr.w, tr.y); 
+    ctx.lineTo(tr.x + tr.w, tr.y + tr.h); 
+    ctx.stroke();
+
+    ctx.save(); 
+    ctx.beginPath(); 
+    ctx.rect(tr.x, tr.y, tr.w, tr.h); 
+    ctx.clip();
+    let ty = tr.y + 8;
+    for (let p = 1; p <= this.totalPages; p++) {
+      const img = this._thumbImages[p];
+      const tw  = tr.w - 16;
+      const th  = img ? Math.round(img.height * tw / img.width) : 70;
+      const tx  = tr.x + 8;
+      if (ty + th > tr.y && ty < tr.y + tr.h) {
+        const active = p === this.currentPage;
+        ctx.strokeStyle = active ? this._colors.thumbActive : this._colors.thumbBorder;
+        ctx.lineWidth   = active ? 2 : 1;
+        this._rr(ctx, tx, ty, tw, th, 3);
+        if (img) { 
+          ctx.drawImage(img, tx, ty, tw, th); 
+          ctx.stroke(); 
+        }
+        else { 
+          ctx.fillStyle = '#fff'; 
+          ctx.fill(); 
+          ctx.stroke(); 
+        }
+        ctx.fillStyle = '#666'; 
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center'; 
+        ctx.textBaseline = 'top';
+        ctx.fillText(p, tx + tw / 2, ty + th + 2);
+      }
+      ty += th + 18;
+    }
+    ctx.restore();
+  }
+
+  // ─── Toolbar ─────────────────────────────────────────────────────────────────
+
+  _drawToolbar(ctx) {
+    const tb = this._tbRect;
+    ctx.fillStyle = this._primary; 
+    ctx.fillRect(tb.x, tb.y, tb.w, tb.h);
+    if (!this._isMat) {
+      ctx.strokeStyle = this._colors.toolbarBorder || '#C6C6C8'; 
+      ctx.lineWidth = 1;
+      ctx.beginPath(); 
+      ctx.moveTo(tb.x, tb.y + tb.h); 
+      ctx.lineTo(tb.x + tb.w, tb.y + tb.h); 
+      ctx.stroke();
+    }
+
+    ctx.save(); 
+    ctx.beginPath(); 
+    ctx.rect(tb.x, tb.y, tb.w, tb.h); 
+    ctx.clip();
+
+    this._tbButtons     = [];
+    this._pageInputRect = null;
+    let cx = tb.x + 12;
+    const my = tb.y + tb.h / 2;
+
+    // Titre
+    const title = typeof this.src === 'string' ? (this.src.split('/').pop() || 'Document.pdf') : 'Document.pdf';
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.font = `${this._isMat ? '500' : '600'} ${this._isMat ? 15 : 16}px sans-serif`;
+    ctx.textAlign = 'left'; 
+    ctx.textBaseline = 'middle';
+    
+    // Calcul de la largeur disponible pour le titre
+    let availableWidth = tb.w - 200; // Réserver de l'espace pour les boutons
+    
+    let t = title;
+    while (ctx.measureText(t).width > availableWidth && t.length > 2) {
+      t = t.slice(0, -1);
+    }
+    if (t !== title) t += '…';
+    ctx.fillText(t, cx, my);
+
+    // Boutons de navigation (si plus d'une page)
+    if (this.totalPages > 1 && this.allowNavigation) {
+      cx = tb.x + tb.w - 240;
+      
+      // Page précédente
+      cx = this._btn(ctx, cx, my, 'prev', this._icChevron('left'), 0, this.currentPage <= 1);
+      
+      // Indicateur de page
+      const pageText = `${this.currentPage}/${this.totalPages}`;
+      ctx.fillStyle = 'rgba(255,255,255,0.88)'; 
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'center'; 
+      ctx.textBaseline = 'middle';
+      ctx.fillText(pageText, cx + 20, my);
+      
+      // Enregistrer la zone cliquable pour l'indicateur de page
+      this._pageInputRect = { x: cx, y: my - 16, w: 44, h: 32 };
+      
+      cx += 44;
+      
+      // Page suivante
+      cx = this._btn(ctx, cx, my, 'next', this._icChevron('right'), 0, this.currentPage >= this.totalPages);
+      
+      cx += 8; // Séparateur
+    }
+
+    // Boutons de zoom (toujours à droite)
+    cx = tb.x + tb.w - 120;
+    
+    // Zoom out
+    if (this.allowZoom) {
+      cx = this._btn(ctx, cx, my, 'zoomOut', '−', 20, this.scale <= this.minScale);
+      
+      // Pourcentage
+      const zl = `${Math.round(this.scale * 100)}%`;
+      ctx.fillStyle = 'rgba(255,255,255,0.88)'; 
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center'; 
+      ctx.textBaseline = 'middle';
+      ctx.fillText(zl, cx + 20, my);
+      
+      cx += 44;
+      
+      // Zoom in
+      cx = this._btn(ctx, cx, my, 'zoomIn', '+', 20, this.scale >= this.maxScale);
+    }
+
+    ctx.restore();
+  }
+
+  _btn(ctx, x, y, id, content, fontSize = 0, disabled = false) {
+    const bw = 32, bh = 32, bx = x, by = y - 16;
+    
+    // Hover effect
+    if (this._hoveredBtn === id && !disabled) {
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'; 
+      this._rr(ctx, bx, by, bw, bh, this._isMat ? 4 : 6); 
+      ctx.fill();
+    }
+    
+    this._tbButtons.push({ id, x: bx, y: by, w: bw, h: bh, disabled });
+    ctx.globalAlpha = disabled ? 0.35 : 1;
+    
+    const isText = typeof content === 'string' && content.length <= 2;
+    if (isText) {
+      ctx.fillStyle = '#fff'; 
+      ctx.font = `${fontSize || 18}px sans-serif`;
+      ctx.textAlign = 'center'; 
+      ctx.textBaseline = 'middle';
+      ctx.fillText(content, bx + bw / 2, y);
+    } else {
+      // C'est un chemin SVG
+      ctx.save();
+      ctx.translate(bx + 7, y - 9);
+      ctx.strokeStyle = '#fff'; 
+      ctx.lineWidth = 2; 
+      ctx.lineCap = 'round'; 
+      ctx.lineJoin = 'round';
+      ctx.stroke(new Path2D(content));
+      ctx.restore();
+    }
+    
+    ctx.globalAlpha = 1;
+    return x + bw + 4;
+  }
+
+  // ─── Barre de recherche ───────────────────────────────────────────────────────
+
+  _drawSearchBar(ctx) {
+    const sb = this._sbRect; 
+    if (sb.h === 0) return;
+    
+    ctx.fillStyle = this._isMat ? this.m3Colors.surfaceVariant : '#F2F2F7';
+    ctx.fillRect(sb.x, sb.y, sb.w, sb.h);
+    ctx.strokeStyle = this._colors.outlineVariant || '#C6C6C8'; 
+    ctx.lineWidth = 1;
+    ctx.beginPath(); 
+    ctx.moveTo(sb.x, sb.y + sb.h); 
+    ctx.lineTo(sb.x + sb.w, sb.y + sb.h); 
+    ctx.stroke();
+
+    const fw = sb.w - 24 - 38, fh = sb.h - 16;
+    ctx.fillStyle = '#fff'; 
+    this._rr(ctx, sb.x + 12, sb.y + 8, fw, fh, this._isMat ? 4 : 8); 
+    ctx.fill();
+    ctx.strokeStyle = this._colors.outline || '#C6C6C8';
+    this._rr(ctx, sb.x + 12, sb.y + 8, fw, fh, this._isMat ? 4 : 8); 
+    ctx.stroke();
+    ctx.fillStyle = this._searchQuery ? '#000' : '#999';
+    ctx.font = '13px sans-serif'; 
+    ctx.textAlign = 'left'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillText(this._searchQuery || 'Rechercher...', sb.x + 20, sb.y + sb.h / 2);
+
+    const clx = sb.x + sb.w - 34;
+    this._searchCloseRect = { x: clx, y: sb.y, w: 34, h: sb.h };
+    
+    // Hover effect pour le bouton de fermeture
+    if (this._hoveredBtn === 'searchClose') {
+      ctx.fillStyle = '#444';
+    } else {
+      ctx.fillStyle = '#666';
+    }
+    ctx.font = '15px sans-serif';
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✕', clx + 17, sb.y + sb.h / 2);
+  }
+
+  // ─── Gestion des clics ───────────────────────────────────────────────────────
+
+  _handleClick(x, y) {
+    console.log('Click at', x, y); // Debug
+    
+    // Retry
+    if (this._retryBtn) {
+      const r = this._retryBtn;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        console.log('Retry clicked');
+        if (this.src) this._loadPDF(this.src); 
+        return;
+      }
+    }
+    
+    // Fermer recherche
+    if (this._searchCloseRect) {
+      const r = this._searchCloseRect;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        console.log('Search close clicked');
+        this._toggleSearch(); 
+        return;
+      }
+    }
+    
+    // Toolbar
+    for (const b of this._tbButtons) {
+      if (!b.disabled && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        console.log('Button clicked:', b.id);
+        this._handleBtn(b.id); 
+        return;
+      }
+    }
+    
+    // Indicateur de page (pour navigation)
+    if (this._pageInputRect) {
+      const r = this._pageInputRect;
+      if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+        console.log('Page indicator clicked');
+        this._promptPage(); 
+        return;
+      }
+    }
+    
+    // Miniatures
+    if (this.totalPages > 1) {
+      const tr = this._thumbRect;
+      if (x >= tr.x && x <= tr.x + tr.w) {
+        let ty = tr.y + 8;
+        for (let p = 1; p <= this.totalPages; p++) {
+          const img = this._thumbImages[p];
+          const tw  = tr.w - 16;
+          const th  = img ? Math.round(img.height * tw / img.width) : 70;
+          if (y >= ty && y <= ty + th) { 
+            console.log('Thumbnail clicked:', p);
+            this.goToPage(p); 
+            return; 
+          }
+          ty += th + 18;
+        }
+      }
+    }
+  }
+
+  _handleBtn(id) {
+    console.log('Handling button:', id);
+    switch (id) {
+      case 'prev':     
+        this.goToPreviousPage();            
+        break;
+      case 'next':     
+        this.goToNextPage();                
+        break;
+      case 'zoomIn':   
+        this._setScale(this.scale + 0.25);  
+        break;
+      case 'zoomOut':  
+        this._setScale(this.scale - 0.25);  
+        break;
+      case 'zoomFit':  
+        this._fitToWidth();                 
+        break;
+      case 'rotate':   
+        this._rotate();                     
+        break;
+      case 'search':   
+        this._toggleSearch();               
+        break;
+      case 'download': 
+        this._download();                   
+        break;
+      case 'print':    
+        this._print();                      
+        break;
+    }
+    this._redraw();
+  }
+
+  // ─── Actions ─────────────────────────────────────────────────────────────────
+
+  _setScale(s) {
+    this.scale = Math.max(this.minScale, Math.min(this.maxScale, Math.round(s * 100) / 100));
+    this.onScaleChange(this.scale);
+    this._reRenderAll();
+  }
+
+  async _fitToWidth() {
+    if (!this._pdfDoc) return;
+    const vp = (await this._pdfDoc.getPage(1)).getViewport({ scale: 1 });
+    this._setScale((this._viewerRect.w - 32) / vp.width);
+  }
+
+  _rotate() { 
+    this.rotation = (this.rotation + 90) % 360; 
+    this._reRenderAll(); 
+  }
+
+  _download() {
+    if (typeof this.src !== 'string') return;
+    const a = document.createElement('a');
+    a.href = this.src; 
+    a.download = this.src.split('/').pop() || 'document.pdf'; 
+    a.click();
+  }
+
+  _print() {
+    if (typeof this.src !== 'string') return;
+    const w = window.open(this.src);
+    if (w) w.addEventListener('load', () => w.print());
+  }
+
+  _toggleSearch() {
+    this._searchOpen = !this._searchOpen;
+    this._computeMaxScroll();
+    this._redraw();
+  }
+
+  _promptPage() {
+    const v = prompt(`Aller à la page (1–${this.totalPages}) :`, this.currentPage);
+    if (v !== null) { 
+      const p = parseInt(v); 
+      if (p >= 1 && p <= this.totalPages) this.goToPage(p); 
+    }
+  }
+
+  // ─── Navigation publique ─────────────────────────────────────────────────────
+
+  goToPage(page) {
+    if (!this._pdfDoc || page < 1 || page > this.totalPages) return;
+    this.currentPage = page;
+    this._scrollY    = Math.max(0, Math.min(this._maxScrollY, this._pageScrollOffset(page) - 8));
+    this.onPageChange(page, this.totalPages);
+    this._redraw();
+  }
+
+  goToPreviousPage() { 
+    if (this.currentPage > 1) this.goToPage(this.currentPage - 1); 
+  }
+  
+  goToNextPage() { 
+    if (this.currentPage < this.totalPages) this.goToPage(this.currentPage + 1); 
+  }
+
+  // ─── API publique ─────────────────────────────────────────────────────────────
+
+  load(src) {
+    this.src = src; 
+    this._pdfDoc = null;
+    this._pageImages = {}; 
+    this._thumbImages = {}; 
+    this._scrollY = 0;
+    this._loadPDF(src);
+  }
+
+  setScale(s) { 
+    this._setScale(s); 
+  }
+
+  async getMetadata() { 
+    return this._pdfDoc ? this._pdfDoc.getMetadata() : null; 
+  }
+
+  // ─── Icônes SVG paths (18×18 viewbox) ────────────────────────────────────────
+
+  _icChevron(d) { 
+    return d === 'left' ? 'M12 3 L5 9 L12 15' : 'M6 3 L13 9 L6 15'; 
+  }
+  
+  _icFit() { 
+    return 'M11 1 L17 1 L17 7 M1 11 L1 17 L7 17 M17 1 L10 8 M1 17 L8 10'; 
+  }
+  
+  _icRotate() { 
+    return 'M1 4 L1 9 L6 9 M2 11.5 A8 8 0 1 0 4 4.5'; 
+  }
+  
+  _icSearch() { 
+    return 'M7.5 13.5 A6 6 0 1 0 7.5 1.5 A6 6 0 1 0 7.5 13.5 M12 12 L17 17'; 
+  }
+  
+  _icDownload() { 
+    return 'M9 1 L9 11 M5 7 L9 11 L13 7 M1 14 L1 17 L17 17 L17 14'; 
+  }
+  
+  _icPrint() { 
+    return 'M4 7 L4 1 L14 1 L14 7 M4 15 L14 15 L14 11 L4 11 Z M1 7 L17 7 L17 14 L1 14 Z'; 
+  }
+
+  // ─── Utilitaire roundRect ─────────────────────────────────────────────────────
+
+  _rr(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);       
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y,     x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x,     y + h, x,     y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x,     y,     x + r, y);
+    ctx.closePath();
+  }
+
   isPointInside(x, y) {
     return x >= this.x && x <= this.x + this.width &&
            y >= this.y && y <= this.y + this.height;
   }
 
-  /**
-   * Nettoie les ressources
-   */
   destroy() {
-    if (this._containerEl && this._containerEl.parentNode) {
-      this._containerEl.parentNode.removeChild(this._containerEl);
+    if (this._spinRAF)     cancelAnimationFrame(this._spinRAF);
+    if (this._momentumRAF) cancelAnimationFrame(this._momentumRAF);
+    const canvas = this.framework && this.framework.canvas;
+    if (canvas && this._eventsRegistered) {
+      const h = this._boundHandlers;
+      canvas.removeEventListener('mousedown',  h.onMouseDown);
+      canvas.removeEventListener('mousemove',  h.onMouseMove);
+      canvas.removeEventListener('mouseup',    h.onMouseUp);
+      canvas.removeEventListener('mouseleave', h.onMouseLeave);
+      canvas.removeEventListener('click',      h.onClick);
+      canvas.removeEventListener('wheel',      h.onWheel);
+      canvas.removeEventListener('touchstart', h.onTouchStart);
+      canvas.removeEventListener('touchmove',  h.onTouchMove);
+      canvas.removeEventListener('touchend',   h.onTouchEnd);
+      canvas.removeEventListener('touchcancel', h.onTouchEnd);
     }
-    this._pdfDoc      = null;
-    this._mounted     = false;
-    this._containerEl = null;
-    super.destroy && super.destroy();
+    this._pdfDoc = null;
+    if (super.destroy) super.destroy();
   }
 }
 
