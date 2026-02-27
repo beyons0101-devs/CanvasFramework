@@ -572,11 +572,10 @@ class FloatedCamera extends Component {
 
     // 2. Mode contain/cover (DROITE)
     const mb = this._getModeBtnBounds();
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillRect(this.x + mb.x, this.y + mb.y, mb.size, mb.size);
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(this.x + mb.x, this.y + mb.y, mb.size, mb.size);
+	ctx.fillStyle = 'rgba(255,255,255,0.9)';
+	ctx.beginPath();
+	ctx.arc(this.x + mb.x + mb.size / 2, this.y + mb.y + mb.size / 2, mb.size / 2, 0, Math.PI * 2);
+	ctx.fill();
     if (this.fitMode === 'contain') {
       this.drawContainIcon(ctx, this.x + mb.x, this.y + mb.y, mb.size);
     } else {
