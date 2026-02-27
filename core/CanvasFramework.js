@@ -131,6 +131,7 @@ const FIXED_COMPONENT_TYPES = new Set([
     QRCodeReader,
     Banner,
     SliverAppBar,
+	PDFViewer,
     BottomSheet,
     ContextMenu,
     OpenStreetMap,
@@ -584,6 +585,7 @@ class CanvasFramework {
 
         this.setupEventListeners();
         this.setupHistoryListener();
+		this._initNavigationGuard(); // ← AJOUTER
 
         this.startRenderLoop();
 
@@ -634,6 +636,13 @@ class CanvasFramework {
         }
 
     }
+	
+	_initNavigationGuard() {
+		// Injecter 2 entrées : une base + la route actuelle
+		// Ainsi le navigateur a toujours une entrée "avant" à consommer
+		window.history.replaceState({ route: '/', _guard: true }, '', '/');
+		window.history.pushState({ route: '/', _app: true }, '', '/');
+	}
 
 	/**
 	 * Crée un élément DOM temporaire, l'ajoute au body, exécute une callback, puis le supprime
@@ -1962,16 +1971,51 @@ class CanvasFramework {
      * @private
      */
     setupHistoryListener() {
-        window.addEventListener('popstate', (e) => {
-            if (e.state && e.state.route) {
-                this.navigateTo(e.state.route, {
-                    replace: true,
-                    animate: true,
-                    direction: 'back'
-                });
-            }
-        });
-    }
+		window.addEventListener('popstate', (e) => {
+			// Cas 1 : L'app a un historique interne → naviguer en arrière dans l'app
+			if (this.historyIndex > 0) {
+				this.historyIndex--;
+				const entry = this.history[this.historyIndex];
+
+				// Recharger la vue précédente sans toucher window.history
+				this._navigateInternal(entry.path, {
+					replace: true,
+					animate: true,
+					direction: 'back'
+				});
+
+				// Réinjecter une entrée pour ne jamais vider la pile navigateur
+				window.history.pushState({ route: entry.path, _app: true }, '', entry.path);
+
+			} else {
+				// Cas 2 : Plus d'historique interne → réinjecter et ignorer
+				// (empêche de quitter l'app)
+				const currentPath = this.currentRoute || '/';
+				window.history.pushState({ route: currentPath, _app: true }, '', currentPath);
+
+				// Optionnel : afficher un toast "Appuyez encore pour quitter"
+				this._handleBackExitAttempt();
+			}
+		});
+	}
+	
+	_handleBackExitAttempt() {
+		const now = Date.now();
+
+		if (this._lastBackAttempt && (now - this._lastBackAttempt) < 2000) {
+			// Deux back rapides → vraiment quitter (sur PWA/WebView)
+			// Sur navigateur standard ce n'est pas possible, mais sur Capacitor/Cordova oui
+			if (window.navigator.app?.exitApp) {
+				window.navigator.app.exitApp(); // Cordova
+			} else if (window.Capacitor?.Plugins?.App) {
+				window.Capacitor.Plugins.App.exitApp(); // Capacitor
+			}
+			this._lastBackAttempt = null;
+		} else {
+			this._lastBackAttempt = now;
+			this.showToast('Appuyez encore pour quitter', 2000);
+		}
+	}
 
     // ===== MÉTHODES DE ROUTING =====
 
@@ -2206,6 +2250,20 @@ class CanvasFramework {
 		}
 
 		this._maxScrollDirty = true;
+		
+		// Historique navigateur : seulement si ce n'est pas un retour interne
+		if (!options._internal) {
+			if (!replace) {
+				window.history.pushState({ route: path, _app: true }, '', path);
+			} else {
+				window.history.replaceState({ route: path, _app: true }, '', path);
+			}
+		}
+	}
+	
+	// Alias pour usage interne (sans toucher window.history)
+	_navigateInternal(path, options = {}) {
+		return this.navigateTo(path, { ...options, _internal: true });
 	}
 
     /**
