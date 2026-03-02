@@ -8,7 +8,7 @@
 
 ---
 
-# Official WebSite ( underconstruction )
+# Official WebSite
 https://beyons.github.io/canvasFrameworkDocs/
 
 ---
