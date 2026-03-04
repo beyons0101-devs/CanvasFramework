@@ -17,8 +17,8 @@ class AnimationEngine {
     
     // Worker pour les calculs d'animation
     this.worker = null;
-    this.workerEnabled = true;
-    this.initWorker();
+    this.workerEnabled = false;
+    //this.initWorker();
     
     // OffscreenCanvas cache
     this.offscreenCache = new Map();
