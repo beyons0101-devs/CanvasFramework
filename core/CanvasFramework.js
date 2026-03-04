@@ -381,6 +381,7 @@ class CanvasFramework {
 		};
 		this._firstRenderDone = false;
 		this._startupStartTime = startTime;
+		this._needsFullRender = true; // Flag de rendu global (remplace forEach sur scroll)
 		// Dans le constructeur, après this.scrollFriction = 0.95;
 		this.scrollFriction = 0.95;
 
@@ -613,22 +614,13 @@ class CanvasFramework {
         // ✅ AJOUTER: Mesurer le temps d'init
         const initTime = performance.now() - startTime;
 
-        // ✅ AJOUTER: Stocker les métriques
-        this.metrics = {
-            initTime: initTime,
-            firstRenderTime: null,
-            firstInteractionTime: null,
-            totalStartupTime: null
-        };
+        // ✅ Mettre à jour les métriques (initialisées plus haut)
+        this.metrics.initTime = initTime;
 
         // ✅ AJOUTER: Logger si debug
         if (options.debug || options.showMetrics) {
             console.log(`⚡ Framework initialisé en ${initTime.toFixed(2)}ms`);
         }
-
-        // ✅ AJOUTER: Marquer le premier rendu
-        this._firstRenderDone = false;
-        this._startupStartTime = startTime;
 
         // ✅ OPTIMISATION OPTION 5: Partition spatiale pour le culling (optionnel)
         if (this.optimizations.useSpatialPartitioning) {
@@ -980,7 +972,10 @@ class CanvasFramework {
 		`;
 
 		const blob = new Blob([workerCode], { type: 'application/javascript' });
-		return new Worker(URL.createObjectURL(blob));
+		const _scrollWorkerUrl = URL.createObjectURL(blob);
+		const _scrollWorker = new Worker(_scrollWorkerUrl);
+		URL.revokeObjectURL(_scrollWorkerUrl); // Libérer la mémoire du blob
+		return _scrollWorker;
 	}
 
     /**
@@ -1004,12 +999,9 @@ class CanvasFramework {
             this._cachedMaxScroll = payload.maxScroll;
             this._maxScrollDirty = false;
 
+            // ✅ OPTIMISATION : Un simple flag au lieu d'un forEach sur tous les composants
             if (Math.abs(payload.scrollVelocity) > 0) {
-                this.components.forEach(comp => {
-                    if (!this.isFixedComponent(comp)) {
-                        this.markComponentDirty(comp);
-                    }
-                });
+                this._needsFullRender = true;
             }
             
             // ✅ AJOUTER: Continuer l'animation de retour si nécessaire
@@ -1197,6 +1189,13 @@ class CanvasFramework {
         const key = `${text}_${font}_${color}`;
 
         if (!this.textCache.has(key)) {
+            // ✅ Limite LRU : éviter une croissance mémoire infinie
+            if (this.textCache.size >= 500) {
+                // Supprimer la première entrée (la plus ancienne)
+                const firstKey = this.textCache.keys().next().value;
+                this.textCache.delete(firstKey);
+            }
+
             // Rendu dans un canvas temporaire
             const temp = document.createElement('canvas');
             const tempCtx = temp.getContext('2d', {
@@ -1448,6 +1447,7 @@ class CanvasFramework {
             }
 
             // Marquer tous les composants comme sales pour forcer un redessin complet
+            this._needsFullRender = true;
             this.components.forEach(comp => this.markComponentDirty(comp));
         }
     }
@@ -1477,6 +1477,14 @@ class CanvasFramework {
             logoImage.src = opts.logo;
         }
 
+        // ✅ OPTIMISATION : Créer le gradient UNE seule fois avant la boucle
+        let splashGradient = null;
+        if (Array.isArray(opts.backgroundColor) && opts.backgroundColor.length >= 2) {
+            splashGradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
+            splashGradient.addColorStop(0, opts.backgroundColor[0]);
+            splashGradient.addColorStop(1, opts.backgroundColor[1]);
+        }
+
         const animate = () => {
             const elapsed = performance.now() - startTime;
             const progress = Math.min(elapsed / opts.duration, 1);
@@ -1484,17 +1492,8 @@ class CanvasFramework {
             // Clear
             this.ctx.clearRect(0, 0, this.width, this.height);
 
-            // ✅ Background (gradient ou couleur unie)
-            if (Array.isArray(opts.backgroundColor) && opts.backgroundColor.length >= 2) {
-                // Gradient
-                const gradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
-                gradient.addColorStop(0, opts.backgroundColor[0]);
-                gradient.addColorStop(1, opts.backgroundColor[1]);
-                this.ctx.fillStyle = gradient;
-            } else {
-                // Couleur unie
-                this.ctx.fillStyle = opts.backgroundColor;
-            }
+            // ✅ Background (gradient pré-calculé ou couleur unie)
+            this.ctx.fillStyle = splashGradient || opts.backgroundColor;
             this.ctx.fillRect(0, 0, this.width, this.height);
 
             const centerX = this.width / 2;
@@ -1568,6 +1567,14 @@ class CanvasFramework {
         const duration = opts.fadeOutDuration;
         const startTime = performance.now();
 
+        // ✅ OPTIMISATION : Créer le gradient UNE seule fois avant la boucle
+        let fadeGradient = null;
+        if (Array.isArray(opts.backgroundColor) && opts.backgroundColor.length >= 2) {
+            fadeGradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
+            fadeGradient.addColorStop(0, opts.backgroundColor[0]);
+            fadeGradient.addColorStop(1, opts.backgroundColor[1]);
+        }
+
         const fade = () => {
             const elapsed = performance.now() - startTime;
             const progress = elapsed / duration;
@@ -1577,15 +1584,8 @@ class CanvasFramework {
                 this.ctx.clearRect(0, 0, this.width, this.height);
                 this.ctx.globalAlpha = alpha;
 
-                // Redessiner le background
-                if (Array.isArray(opts.backgroundColor) && opts.backgroundColor.length >= 2) {
-                    const gradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
-                    gradient.addColorStop(0, opts.backgroundColor[0]);
-                    gradient.addColorStop(1, opts.backgroundColor[1]);
-                    this.ctx.fillStyle = gradient;
-                } else {
-                    this.ctx.fillStyle = opts.backgroundColor;
-                }
+                // Redessiner le background avec le gradient pré-calculé
+                this.ctx.fillStyle = fadeGradient || opts.backgroundColor;
                 this.ctx.fillRect(0, 0, this.width, this.height);
 
                 // Spinner pendant le fade
@@ -1603,17 +1603,18 @@ class CanvasFramework {
                 requestAnimationFrame(fade);
             } else {
                 this._splashFinished = true;
-                // ✅ AJOUTER : Réinitialiser complètement le contexte
+                // ✅ Réinitialiser complètement le contexte
                 this.ctx.clearRect(0, 0, this.width, this.height);
                 this.ctx.globalAlpha = 1;
-                this.ctx.textAlign = 'start'; // ← IMPORTANT
-                this.ctx.textBaseline = 'alphabetic'; // ← IMPORTANT
-                this.ctx.font = '10px sans-serif'; // Valeur par défaut
+                this.ctx.textAlign = 'start';
+                this.ctx.textBaseline = 'alphabetic';
+                this.ctx.font = '10px sans-serif';
                 this.ctx.fillStyle = '#000000';
                 this.ctx.strokeStyle = '#000000';
                 this.ctx.lineWidth = 1;
                 this.ctx.lineCap = 'butt';
                 this.ctx.lineJoin = 'miter';
+                this._needsFullRender = true;
             }
         };
 
@@ -1773,19 +1774,14 @@ class CanvasFramework {
         }
     }
 
+    /**
+     * Méthode réservée pour les futures personnalisations de contexte liées au thème.
+     * L'ancienne implémentation modifiait Object.defineProperty sur le prototype global,
+     * ce qui pouvait causer des effets de bord. Désactivée intentionnellement.
+     */
     wrapContext(ctx, theme) {
-        const originalFillStyle = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'fillStyle');
-        Object.defineProperty(ctx, 'fillStyle', {
-            set: (value) => {
-                // Si value est blanc/noir ou une couleur “neutre”, tu remplaces par theme
-                if (value === '#FFFFFF' || value === '#000000') {
-                    originalFillStyle.set.call(ctx, value);
-                } else {
-                    originalFillStyle.set.call(ctx, value);
-                }
-            },
-            get: () => originalFillStyle.get.call(ctx)
-        });
+        // Intentionnellement vide : les deux branches produisaient le même effet.
+        // À ré-implémenter proprement si un remplacement de couleur basé sur le thème est requis.
     }
 
     createCanvasWorker() {
@@ -1840,9 +1836,10 @@ class CanvasFramework {
 
         // Protège la boucle
         if (this.components && Array.isArray(this.components)) {
+            this._needsFullRender = true;
             this.components.forEach(comp => comp.markDirty());
         } else {
-            console.warn('[setTheme] components pas encore initialisé');
+            if (this.debbug) console.warn('[setTheme] components pas encore initialisé');
         }
     }
 
@@ -1957,13 +1954,22 @@ class CanvasFramework {
     }
 
     setupEventListeners() {
-        this.canvas.addEventListener('touchstart', this.handleTouchStart.bind(this));
-        this.canvas.addEventListener('touchmove', this.handleTouchMove.bind(this));
-        this.canvas.addEventListener('touchend', this.handleTouchEnd.bind(this));
-        this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
-        this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
-        this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
-        window.addEventListener('resize', this.handleResize.bind(this));
+        // Sauvegarder les références bound pour pouvoir les retirer dans destroy()
+        this._boundHandleTouchStart = this.handleTouchStart.bind(this);
+        this._boundHandleTouchMove  = this.handleTouchMove.bind(this);
+        this._boundHandleTouchEnd   = this.handleTouchEnd.bind(this);
+        this._boundHandleMouseDown  = this.handleMouseDown.bind(this);
+        this._boundHandleMouseMove  = this.handleMouseMove.bind(this);
+        this._boundHandleMouseUp    = this.handleMouseUp.bind(this);
+        this._boundHandleResize     = this.handleResize.bind(this);
+
+        this.canvas.addEventListener('touchstart', this._boundHandleTouchStart, { passive: false });
+        this.canvas.addEventListener('touchmove',  this._boundHandleTouchMove,  { passive: false });
+        this.canvas.addEventListener('touchend',   this._boundHandleTouchEnd,   { passive: false });
+        this.canvas.addEventListener('mousedown',  this._boundHandleMouseDown);
+        this.canvas.addEventListener('mousemove',  this._boundHandleMouseMove);
+        this.canvas.addEventListener('mouseup',    this._boundHandleMouseUp);
+        window.addEventListener('resize',          this._boundHandleResize);
     }
 
     /**
@@ -2250,15 +2256,7 @@ class CanvasFramework {
 		}
 
 		this._maxScrollDirty = true;
-		
-		// Historique navigateur : seulement si ce n'est pas un retour interne
-		if (!options._internal) {
-			if (!replace) {
-				window.history.pushState({ route: path, _app: true }, '', path);
-			} else {
-				window.history.replaceState({ route: path, _app: true }, '', path);
-			}
-		}
+		this._needsFullRender = true; // Forcer un rendu complet après navigation
 	}
 	
 	// Alias pour usage interne (sans toucher window.history)
@@ -2754,16 +2752,6 @@ class CanvasFramework {
         return Math.max(0, maxY - this.height + 50);
     }
 
-    /*getMaxScroll() {
-      let maxY = 0;
-      for (let comp of this.components) {
-        if (!this.isFixedComponent(comp)) {
-          maxY = Math.max(maxY, comp.y + comp.height);
-        }
-      }
-      return Math.max(0, maxY - this.height + 50);
-    }*/
-
     handleResize() {
 		if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
 
@@ -2774,18 +2762,19 @@ class CanvasFramework {
 			// Règle clé : on resize UNIQUEMENT si la largeur a vraiment changé
 			// (rotation, split-screen, vraie fenêtre changée)
 			// À la fermeture du clavier → largeur = identique → on skip
-			if (Math.abs(newWidth - this.width) <= 8) {   // tolérance pixels (scrollbar, bordures...)
-				console.log("[resize] Largeur identique → probablement clavier (open/close) → ignoré");
+			if (Math.abs(newWidth - this.width) <= 8) {
+				if (this.debbug) console.log("[resize] Largeur identique → probablement clavier (open/close) → ignoré");
 				return;
 			}
 
-			console.log("[resize] Largeur changée → vrai resize");
+			if (this.debbug) console.log("[resize] Largeur changée → vrai resize");
 
 			this.width  = newWidth;
 			this.height = newHeight;
 
 			this.setupCanvas();  // ← change canvas.width/height + DPR + style
 			this._maxScrollDirty = true;
+			this._needsFullRender = true; // Forcer un rendu complet après resize
 
 			if (this.scrollWorker) {
 				this.scrollWorker.postMessage({
@@ -2822,6 +2811,7 @@ class CanvasFramework {
         this.components.push(component);
         component._mount();
         this.updateScrollWorkerComponents();
+        this._needsFullRender = true; // Forcer un rendu complet après ajout
         return component;
     }
 
@@ -2831,6 +2821,7 @@ class CanvasFramework {
             component._unmount();
             this.components.splice(index, 1);
             this.updateScrollWorkerComponents();
+            this._needsFullRender = true; // Forcer un rendu complet après suppression
         }
     }
 
@@ -2839,10 +2830,12 @@ class CanvasFramework {
 		// Vérifications basiques
 		if (!component || !component.visible) return;
 		
-		// ✅ TOUJOURS ajouter au set des composants sales
-		// Les conditions de rendu seront vérifiées dans _renderDirtyComponents
 		if (this.optimizationEnabled) {
+			// ✅ Ajouter au set des composants sales pour rendu partiel
 			this.dirtyComponents.add(component);
+		} else {
+			// Sans optimisation : forcer un rendu complet
+			this._needsFullRender = true;
 		}
 		
 		// ✅ Optionnel : Marquer aussi le composant lui-même
@@ -3016,8 +3009,7 @@ class CanvasFramework {
     }
 
 	startRenderLoop() {
-		let lastScrollOffset = this.scrollOffset;
-		this._needsRender = true; // ← AJOUTER
+		this._needsRender = true;
 		
 		const render = () => {
 			if (!this._splashFinished) {
@@ -3031,25 +3023,22 @@ class CanvasFramework {
 			
 			// Si une transition est en cours
 			if (this.transitionState.isTransitioning) {
-				// Mettre à jour la progression
 				const elapsed = Date.now() - this.transitionState.startTime;
 				this.transitionState.progress = Math.min(elapsed / this.transitionState.duration, 1);
 				
-				// Rendu spécial pour la transition
 				this.renderSimpleTransition();
 				
-				// Si la transition est terminée
 				if (this.transitionState.progress >= 1) {
 					this.transitionState.isTransitioning = false;
 					this.transitionState.oldComponents = [];
 				}
-			} 
-			// Sinon, rendu normal
+			}
+			// Rendu normal — toujours dessiner pour garantir l'affichage
 			else {
 				this.renderFull();
 			}
 			
-			// Calcul FPS (optionnel)
+			// Calcul FPS
 			this._frames++;
 			const now = performance.now();
 			const elapsed = now - this._lastFpsTime;
@@ -3226,26 +3215,6 @@ class CanvasFramework {
 		ctx.restore();
 	}
 		
-	/**
-	 * Mettre à jour la progression de la transition
-	 * @private
-	 */
-	updateTransition() {
-		if (!this.transitionState.isTransitioning) return;
-		
-		const elapsed = Date.now() - this.transitionState.startTime;
-		this.transitionState.progress = Math.min(elapsed / this.transitionState.duration, 1);
-		
-		// Si la transition est terminée
-		if (this.transitionState.progress >= 1) {
-			this.transitionState.isTransitioning = false;
-			
-			// Marquer tous les nouveaux composants comme sales pour le prochain rendu
-			this.transitionState.newComponents.forEach(comp => {
-				this.markComponentDirty(comp);
-			});
-		}
-	}
 
 	/**
 	 * Rendu complet normal (sans transition)
@@ -3368,14 +3337,18 @@ class CanvasFramework {
 	        this.ctx.destroy();
 	    }
 
-        // Nettoyer les écouteurs d'événements
-        this.canvas.removeEventListener('touchstart', this.handleTouchStart);
-        this.canvas.removeEventListener('touchmove', this.handleTouchMove);
-        this.canvas.removeEventListener('touchend', this.handleTouchEnd);
-        this.canvas.removeEventListener('mousedown', this.handleMouseDown);
-        this.canvas.removeEventListener('mousemove', this.handleMouseMove);
-        this.canvas.removeEventListener('mouseup', this.handleMouseUp);
-        window.removeEventListener('resize', this.handleResize);
+        // Nettoyer les écouteurs d'événements (références bound sauvegardées)
+        this.canvas.removeEventListener('touchstart', this._boundHandleTouchStart);
+        this.canvas.removeEventListener('touchmove',  this._boundHandleTouchMove);
+        this.canvas.removeEventListener('touchend',   this._boundHandleTouchEnd);
+        this.canvas.removeEventListener('mousedown',  this._boundHandleMouseDown);
+        this.canvas.removeEventListener('mousemove',  this._boundHandleMouseMove);
+        this.canvas.removeEventListener('mouseup',    this._boundHandleMouseUp);
+        window.removeEventListener('resize',          this._boundHandleResize);
+
+        // Vider le textCache pour libérer la mémoire
+        if (this.textCache) this.textCache.clear();
+        if (this.imageCache) this.imageCache.clear();
     }
 
     // ✅ AJOUTER: Afficher les métriques à l'écran
