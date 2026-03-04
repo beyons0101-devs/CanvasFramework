@@ -1,781 +1,780 @@
 /**
- * Adaptateur WebGL pour le rendu de texte ultra-optimisé
- * Version améliorée avec optimisations supplémentaires
+ * WebGLCanvasAdapter — Rendu de texte haute performance
+ *
+ * Architecture :
+ *  - Formes / images  → Canvas 2D standard (ctx)
+ *  - Texte            → WebGL Instanced Rendering
+ *
+ * Principe du instanced rendering :
+ *   1. Tous les glyphes sont rasterisés UNE fois dans un atlas de textures WebGL
+ *   2. À chaque frame, on envoie UN seul tableau de données (position, UV, couleur)
+ *      vers le GPU via gl.drawArraysInstanced()
+ *   3. Un seul draw call GPU dessine les 500 glyphes simultanément
+ *   4. Aucune copie CPU↔GPU pendant le rendu
+ *
+ * Comparaison des approches :
+ *   Ancien pipeline  : Canvas→texture→WebGL→drawImage  = 3 copies/glyphe × 500 = 1500 copies
+ *   Canvas 2D atlas  : drawImage sous-rectangle        = 0 copie  (mais 500 draw calls)
+ *   Instanced WebGL  : 1 draw call GPU total           = 0 copie  + 1 seul draw call  ← cette implémentation
+ *
  * @class WebGLCanvasAdapter
  */
 class WebGLCanvasAdapter {
   constructor(canvasElement, options = {}) {
     this.canvas = canvasElement;
-    this.dpr = options.dpr || window.devicePixelRatio || 1;
+    this.dpr    = options.dpr || window.devicePixelRatio || 1;
 
-    // Contexte 2D principal pour les formes
+    // ── Canvas 2D pour tout sauf le texte ──────────────────────────────
     this.ctx = this.canvas.getContext('2d', {
-      alpha: options.alpha !== false,
-      desynchronized: true,
-      willReadFrequently: false
+      alpha:               options.alpha !== false,
+      desynchronized:      true,
+      willReadFrequently:  false
     });
 
-    // ✅ OPTIONS D'OPTIMISATION
-    this.useTextAtlas = options.useTextAtlas !== false;
-    this.enableCulling = options.enableCulling !== false;
-    this.enableBatching = options.enableBatching !== false;
-    this.useOffscreenCanvas = options.useOffscreenCanvas !== false && typeof OffscreenCanvas !== 'undefined';
+    // ── Options ────────────────────────────────────────────────────────
+    this.enableCulling      = options.enableCulling  !== false;
+    this.enableBatching     = options.enableBatching !== false;
+    this.maxTextCacheSize   = options.maxCacheSize   || 512;   // glyphes dans l'atlas
+    this.maxBatchSize       = options.maxBatchSize   || 2048;  // glyphes par frame
+    this.atlasSize          = options.atlasSize      || 2048;  // px côté atlas texture
 
-    // WebGL pour le texte
-    this._initWebGLTextRenderer();
+    // ── WebGL ──────────────────────────────────────────────────────────
+    this._glReady = false;
+    try {
+      this._initWebGL();
+      this._glReady = true;
+    } catch (err) {
+      console.warn('[WebGLCanvasAdapter] WebGL indisponible, fallback Canvas 2D :', err.message);
+    }
 
-    // Cache optimisé avec LRU
-    this.textCache = new Map();
-    this.charAtlas = new Map();
-    this.maxTextCacheSize = options.maxCacheSize || 400;
-    this.lruKeys = []; // ✅ NOUVEAU : Tracking LRU pour meilleur cache eviction
+    // ── Atlas de glyphes (CPU-side) ────────────────────────────────────
+    // Canvas hors-écran qui sert de source pour la texture GPU
+    this._atlasCanvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(this.atlasSize, this.atlasSize)
+      : Object.assign(document.createElement('canvas'), {
+          width: this.atlasSize, height: this.atlasSize
+        });
+    this._atlasCtx = this._atlasCanvas.getContext('2d', { alpha: true });
 
-    // Text Atlas optimisé (utilise plusieurs atlas si nécessaire)
-    this.atlases = [this._createAtlas()]; // ✅ NOUVEAU : Support multi-atlas
-    this.currentAtlasIndex = 0;
+    // Curseur de remplissage de l'atlas
+    this._atlasCursor  = { x: 0, y: 0, rowH: 0 };
+    this._atlasGlyphs  = new Map();   // key → { u0,v0,u1,v1, w,h, advance }
+    this._atlasDirty   = false;       // faut-il re-uploader la texture ?
 
-    // Batch rendering optimisé
-    this.textBatch = [];
-    this.batchMode = false;
-    this.maxBatchSize = options.maxBatchSize || 1000; // ✅ NOUVEAU : Limite batch size
+    // ── Cache LRU O(1) ────────────────────────────────────────────────
+    // Map JS = ordre d'insertion → delete+set = "remonter" une entrée
+    this._glyphCache   = new Map();   // key → metadata (LRU)
 
-    // ✅ NOUVEAU : Pré-calcul des métriques communes
-    this.fontMetricsCache = new Map();
-    this.baselineRatios = {
-      'alphabetic': 0.85,
-      'top': 1.0,
-      'middle': 0.65,
-      'bottom': 0,
-      'hanging': 0.9,
-      'ideographic': 0.1
-    };
+    // ── Batch CPU : tableaux pré-alloués pour le draw call ─────────────
+    // Chaque instance = 8 floats :
+    //   [dstX, dstY, dstW, dstH,   u0, v0, u1, v1,   r, g, b, a]  → 12 floats
+    this._FLOATS_PER_INSTANCE = 12;
+    this._instanceData  = new Float32Array(this.maxBatchSize * this._FLOATS_PER_INSTANCE);
+    this._instanceCount = 0;
+    this._batchMode     = false;
 
-    // États pour le texte
-    this._currentFont = '16px sans-serif';
-    this._currentFillStyle = '#000';
-    this._currentTextAlign = 'start';
+    // ── État de rendu courant ──────────────────────────────────────────
+    this._currentFont         = '16px sans-serif';
+    this._currentFillStyle    = '#000000';
+    this._currentFillRGBA     = [0, 0, 0, 1];
+    this._currentTextAlign    = 'start';
     this._currentTextBaseline = 'alphabetic';
 
-    // ✅ NOUVEAU : Pool d'objets pour réduire GC
-    this.objectPool = {
-      points: [],
-      rects: [],
-      maxPoolSize: 100
-    };
+    // ── Métriques polices (cache) ──────────────────────────────────────
+    this._fontMetrics = new Map();
 
-    // ✅ NOUVEAU : Viewport cache pour culling
-    this.viewportBounds = {
-      left: 0,
-      right: this.canvas.width,
-      top: 0,
-      bottom: this.canvas.height
-    };
+    // ── Viewport ──────────────────────────────────────────────────────
+    this._viewport = { l: 0, t: 0, r: this.canvas.width, b: this.canvas.height };
 
-    // Stats
-    this.stats = {
-      cacheHits: 0,
-      cacheMisses: 0,
-      drawCalls: 0,
-      culledTexts: 0,
-      batchedDraws: 0,
-      atlasCount: 1
-    };
+    // ── Stats ─────────────────────────────────────────────────────────
+    this.stats = { drawCalls: 0, glyphsCached: 0, culled: 0, instancesDrawn: 0 };
 
-    // ✅ NOUVEAU : Debounced cleanup
-    this._cleanupScheduled = false;
-    this._textCleanupInterval = setInterval(() => this._cleanOldCache(), 60000);
+    // Nettoyage périodique de l'atlas si saturation
+    this._cleanupTimer = setInterval(() => this._maybeRebuildAtlas(), 30000);
   }
 
-  // ────────────────────────────────────────────────
-  // ✅ NOUVEAU : Gestion multi-atlas
-  // ────────────────────────────────────────────────
-  _createAtlas() {
-    const canvas = this.useOffscreenCanvas 
-      ? new OffscreenCanvas(2048, 2048)
-      : document.createElement('canvas');
-    
-    if (!this.useOffscreenCanvas) {
-      canvas.width = 2048;
-      canvas.height = 2048;
-    }
-    
-    const ctx = canvas.getContext('2d', { alpha: true, willReadFrequently: false });
-    
-    return {
-      canvas,
-      ctx,
-      x: 0,
-      y: 0,
-      rowHeight: 0,
-      usage: 0 // ✅ Track utilization
-    };
-  }
+  // ══════════════════════════════════════════════════════════════════════
+  // INIT WebGL — shaders + buffers instanciés
+  // ══════════════════════════════════════════════════════════════════════
+  _initWebGL() {
+    // Canvas WebGL dédié, jamais affiché (hors DOM)
+    this._glCanvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(this.canvas.width, this.canvas.height)
+      : Object.assign(document.createElement('canvas'), {
+          width: this.canvas.width, height: this.canvas.height
+        });
 
-  // ────────────────────────────────────────────────
-  // Initialisation WebGL
-  // ────────────────────────────────────────────────
-  _initWebGLTextRenderer() {
-    this.textCanvas = this.useOffscreenCanvas 
-      ? new OffscreenCanvas(256, 256)
-      : document.createElement('canvas');
-    
-    if (!this.useOffscreenCanvas) {
-      this.textCanvas.width = 256;
-      this.textCanvas.height = 256;
-    }
-    
-    this.textCtx = this.textCanvas.getContext('2d', { 
-      alpha: true, 
-      willReadFrequently: false 
+    const gl = this._glCanvas.getContext('webgl2', {
+      alpha:                  true,
+      premultipliedAlpha:     false,
+      antialias:              false,
+      preserveDrawingBuffer:  true,   // nécessaire pour drawImage final
+      powerPreference:        'high-performance'
     });
 
-    this.glCanvas = this.useOffscreenCanvas 
-      ? new OffscreenCanvas(256, 256)
-      : document.createElement('canvas');
-    
-    if (!this.useOffscreenCanvas) {
-      this.glCanvas.width = 256;
-      this.glCanvas.height = 256;
-    }
-
-    this.gl = this.glCanvas.getContext('webgl', {
-      alpha: true,
-      premultipliedAlpha: true,
-      antialias: false,
-      preserveDrawingBuffer: false,
-      powerPreference: 'high-performance' // ✅ NOUVEAU
+    // Fallback WebGL1 si WebGL2 indispo
+    this.gl = gl || this._glCanvas.getContext('webgl', {
+      alpha: true, premultipliedAlpha: false,
+      antialias: false, preserveDrawingBuffer: true
     });
 
-    if (!this.gl) {
-      throw new Error('WebGL non disponible');
+    if (!this.gl) throw new Error('WebGL non disponible');
+
+    // Vérifier l'extension instanced rendering (WebGL1 uniquement)
+    if (!gl) {
+      this._ext = this.gl.getExtension('ANGLE_instanced_arrays');
+      if (!this._ext) throw new Error('ANGLE_instanced_arrays non disponible');
+    } else {
+      this._ext = null; // WebGL2 a l'instancing natif
     }
 
-    this._setupWebGL();
+    this._isWebGL2 = !!gl;
+    this._setupShaders();
+    this._setupBuffers();
+    this._setupAtlasTexture();
   }
 
-  _setupWebGL() {
+  _setupShaders() {
+    const gl = this.gl;
+    const isGL2 = this._isWebGL2;
+
+    // ── Vertex shader ──────────────────────────────────────────────────
+    // Chaque instance reçoit : position destination, UV dans l'atlas, couleur RGBA
+    const vs = isGL2 ? `#version 300 es
+      precision highp float;
+
+      // Quad unitaire [0..1, 0..1] — commun à toutes les instances
+      in vec2  a_quad;
+
+      // Par instance
+      in vec4  a_dst;    // x, y, w, h  (pixels écran)
+      in vec4  a_uv;     // u0,v0,u1,v1 (coordonnées atlas normalisées)
+      in vec4  a_color;  // r,g,b,a
+
+      uniform vec2 u_resolution;
+
+      out vec2 v_uv;
+      out vec4 v_color;
+
+      void main() {
+        // Position pixel dans le repère écran
+        vec2 pos = a_dst.xy + a_quad * a_dst.zw;
+
+        // → clip space [-1..1]
+        vec2 clip = (pos / u_resolution) * 2.0 - 1.0;
+        gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+
+        // UV interpolé dans l'atlas
+        v_uv    = a_uv.xy + a_quad * (a_uv.zw - a_uv.xy);
+        v_color = a_color;
+      }
+    ` : `
+      precision highp float;
+      attribute vec2 a_quad;
+      attribute vec4 a_dst;
+      attribute vec4 a_uv;
+      attribute vec4 a_color;
+      uniform vec2 u_resolution;
+      varying vec2 v_uv;
+      varying vec4 v_color;
+      void main() {
+        vec2 pos  = a_dst.xy + a_quad * a_dst.zw;
+        vec2 clip = (pos / u_resolution) * 2.0 - 1.0;
+        gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+        v_uv    = a_uv.xy + a_quad * (a_uv.zw - a_uv.xy);
+        v_color = a_color;
+      }
+    `;
+
+    // ── Fragment shader ────────────────────────────────────────────────
+    const fs = isGL2 ? `#version 300 es
+      precision mediump float;
+      uniform sampler2D u_atlas;
+      in  vec2 v_uv;
+      in  vec4 v_color;
+      out vec4 outColor;
+      void main() {
+        // Atlas en niveaux de gris (canal alpha = opacité du glyphe)
+        float alpha = texture(u_atlas, v_uv).a;
+        outColor = vec4(v_color.rgb, v_color.a * alpha);
+      }
+    ` : `
+      precision mediump float;
+      uniform sampler2D u_atlas;
+      varying vec2 v_uv;
+      varying vec4 v_color;
+      void main() {
+        float alpha = texture2D(u_atlas, v_uv).a;
+        gl_FragColor = vec4(v_color.rgb, v_color.a * alpha);
+      }
+    `;
+
+    this._program = this._linkProgram(vs, fs);
+
+    // Locations
+    this._loc = {
+      quad:       gl.getAttribLocation (this._program, 'a_quad'),
+      dst:        gl.getAttribLocation (this._program, 'a_dst'),
+      uv:         gl.getAttribLocation (this._program, 'a_uv'),
+      color:      gl.getAttribLocation (this._program, 'a_color'),
+      resolution: gl.getUniformLocation(this._program, 'u_resolution'),
+      atlas:      gl.getUniformLocation(this._program, 'u_atlas')
+    };
+  }
+
+  _linkProgram(vsSrc, fsSrc) {
+    const gl  = this.gl;
+    const vs  = this._compileShader(gl.VERTEX_SHADER,   vsSrc);
+    const fs  = this._compileShader(gl.FRAGMENT_SHADER, fsSrc);
+    const prg = gl.createProgram();
+    gl.attachShader(prg, vs);
+    gl.attachShader(prg, fs);
+    gl.linkProgram(prg);
+    if (!gl.getProgramParameter(prg, gl.LINK_STATUS))
+      throw new Error('WebGL link error: ' + gl.getProgramInfoLog(prg));
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    return prg;
+  }
+
+  _compileShader(type, src) {
+    const gl  = this.gl;
+    const sh  = gl.createShader(type);
+    gl.shaderSource(sh, src);
+    gl.compileShader(sh);
+    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+      throw new Error('Shader compile error: ' + gl.getShaderInfoLog(sh));
+    return sh;
+  }
+
+  _setupBuffers() {
     const gl = this.gl;
 
-    // Shaders identiques
-    const vertexShaderSource = `
-      attribute vec2 a_position;
-      attribute vec2 a_texCoord;
-      uniform vec2 u_resolution;
-      varying vec2 v_texCoord;
-      
-      void main() {
-        vec2 clipSpace = (a_position / u_resolution) * 2.0 - 1.0;
-        gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
-        v_texCoord = a_texCoord;
-      }
-    `;
+    // Quad unitaire — 2 triangles = 6 sommets, commun à toutes les instances
+    // (0,0)→(1,0)→(0,1) + (1,0)→(1,1)→(0,1)
+    const quadVerts = new Float32Array([0,0, 1,0, 0,1,  1,0, 1,1, 0,1]);
+    this._quadBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, quadVerts, gl.STATIC_DRAW);
 
-    const fragmentShaderSource = `
-      precision mediump float;
-      uniform sampler2D u_texture;
-      varying vec2 v_texCoord;
-      
-      void main() {
-        gl_FragColor = texture2D(u_texture, v_texCoord);
-      }
-    `;
-
-    const vertexShader = this._createShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
-    const fragmentShader = this._createShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
-
-    this.program = gl.createProgram();
-    gl.attachShader(this.program, vertexShader);
-    gl.attachShader(this.program, fragmentShader);
-    gl.linkProgram(this.program);
-
-    if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-      throw new Error('Erreur de linkage du programme WebGL');
-    }
-
-    this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
-    this.texCoordLocation = gl.getAttribLocation(this.program, 'a_texCoord');
-    this.resolutionLocation = gl.getUniformLocation(this.program, 'u_resolution');
-
-    this.positionBuffer = gl.createBuffer();
-    this.texCoordBuffer = gl.createBuffer();
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, 1,0, 0,1, 1,1]), gl.STATIC_DRAW);
-
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-  }
-
-  _createShader(gl, type, source) {
-    const shader = gl.createShader(type);
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const info = gl.getShaderInfoLog(shader);
-      gl.deleteShader(shader);
-      throw new Error('Erreur de compilation shader: ' + info);
-    }
-    
-    return shader;
-  }
-
-  // ────────────────────────────────────────────────
-  // ✅ OPTIMISATION : Text Atlas avec cache de métriques
-  // ────────────────────────────────────────────────
-  _getFontMetrics(font) {
-    if (this.fontMetricsCache.has(font)) {
-      return this.fontMetricsCache.get(font);
-    }
-
-    const fontSize = parseFloat(font) || 16;
-    const metrics = {
-      fontSize,
-      lineHeight: fontSize * 1.5,
-      padding: 4
-    };
-
-    this.fontMetricsCache.set(font, metrics);
-    return metrics;
-  }
-
-  _rasterizeChar(char, font, color) {
-    const key = `${char}|${font}|${color}`; // ✅ NOUVEAU : Key plus court
-    
-    if (this.charAtlas.has(key)) {
-      this.stats.cacheHits++;
-      return this.charAtlas.get(key);
-    }
-
-    this.stats.cacheMisses++;
-
-    const metrics = this._getFontMetrics(font);
-    const atlas = this.atlases[this.currentAtlasIndex];
-    
-    atlas.ctx.font = font;
-    const textMetrics = atlas.ctx.measureText(char);
-    
-    const width = Math.ceil(textMetrics.width) + metrics.padding;
-    const height = Math.ceil(metrics.lineHeight) + metrics.padding;
-
-    // ✅ NOUVEAU : Gestion intelligente multi-atlas
-    if (atlas.x + width > 2048) {
-      atlas.x = 0;
-      atlas.y += atlas.rowHeight + 2;
-      atlas.rowHeight = 0;
-    }
-
-    if (atlas.y + height > 2048) {
-      // Créer un nouvel atlas au lieu de clear
-      if (this.atlases.length < 4) { // ✅ Maximum 4 atlas
-        this.currentAtlasIndex++;
-        this.atlases.push(this._createAtlas());
-        this.stats.atlasCount++;
-        return this._rasterizeChar(char, font, color); // Retry
-      } else {
-        // Réutiliser l'atlas le moins utilisé
-        this.currentAtlasIndex = this._findLeastUsedAtlas();
-        this._clearAtlas(this.currentAtlasIndex);
-        return this._rasterizeChar(char, font, color);
-      }
-    }
-
-    // Dessiner le caractère
-    atlas.ctx.font = font;
-    atlas.ctx.fillStyle = color;
-    atlas.ctx.textBaseline = 'alphabetic';
-    atlas.ctx.fillText(char, atlas.x + 2, atlas.y + metrics.fontSize);
-
-    const charData = {
-      atlasIndex: this.currentAtlasIndex,
-      x: atlas.x,
-      y: atlas.y,
-      width,
-      height,
-      textWidth: textMetrics.width
-    };
-
-    this.charAtlas.set(key, charData);
-    atlas.usage++;
-
-    atlas.x += width + 2;
-    atlas.rowHeight = Math.max(atlas.rowHeight, height);
-
-    return charData;
-  }
-
-  // ✅ NOUVEAU : Trouve l'atlas le moins utilisé
-  _findLeastUsedAtlas() {
-    let minUsage = Infinity;
-    let minIndex = 0;
-    
-    for (let i = 0; i < this.atlases.length; i++) {
-      if (this.atlases[i].usage < minUsage) {
-        minUsage = this.atlases[i].usage;
-        minIndex = i;
-      }
-    }
-    
-    return minIndex;
-  }
-
-  // ✅ NOUVEAU : Clear un atlas spécifique
-  _clearAtlas(index) {
-    const atlas = this.atlases[index];
-    atlas.ctx.clearRect(0, 0, 2048, 2048);
-    atlas.x = 0;
-    atlas.y = 0;
-    atlas.rowHeight = 0;
-    atlas.usage = 0;
-
-    // Supprimer les entrées du cache pour cet atlas
-    for (let [key, value] of this.charAtlas.entries()) {
-      if (value.atlasIndex === index) {
-        this.charAtlas.delete(key);
-      }
-    }
-  }
-
-  // ────────────────────────────────────────────────
-  // ✅ OPTIMISATION : Culling amélioré avec marge
-  // ────────────────────────────────────────────────
-  _isInViewport(x, y, width, height) {
-    if (!this.enableCulling) return true;
-
-    const margin = 50; // ✅ NOUVEAU : Marge pour pré-render
-    
-    return !(
-      x + width < -margin ||
-      x > this.viewportBounds.right + margin ||
-      y + height < -margin ||
-      y > this.viewportBounds.bottom + margin
+    // Buffer d'instances — mis à jour chaque frame avec DYNAMIC_DRAW
+    this._instanceBuf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._instanceBuf);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      this._instanceData.byteLength,
+      gl.DYNAMIC_DRAW
     );
   }
 
-  // ✅ NOUVEAU : Update viewport bounds
-  updateViewport(left = 0, top = 0, right = this.canvas.width, bottom = this.canvas.height) {
-    this.viewportBounds = { left, top, right, bottom };
+  _setupAtlasTexture() {
+    const gl = this.gl;
+    this._atlasTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this._atlasTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S,     gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T,     gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // Allouer la texture vide
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA,
+      this.atlasSize, this.atlasSize, 0,
+      gl.RGBA, gl.UNSIGNED_BYTE, null
+    );
   }
 
-  // ────────────────────────────────────────────────
-  // ✅ OPTIMISATION : Batch Rendering avec auto-flush
-  // ────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // ATLAS — rasterisation des glyphes côté CPU
+  // ══════════════════════════════════════════════════════════════════════
+
+  _getFontMetrics(font) {
+    if (this._fontMetrics.has(font)) return this._fontMetrics.get(font);
+    const size = parseFloat(font) || 16;
+    const m = { size, lineH: size * 1.4, pad: 3 };
+    this._fontMetrics.set(font, m);
+    return m;
+  }
+
+  /**
+   * Retourne les données UV d'un glyphe dans l'atlas.
+   * Si absent, le rasterise dans l'atlas CPU et marque la texture dirty.
+   */
+  _getGlyph(char, font) {
+    const key = char + '|' + font;
+
+    if (this._atlasGlyphs.has(key)) {
+      // LRU : remonter
+      const g = this._atlasGlyphs.get(key);
+      this._atlasGlyphs.delete(key);
+      this._atlasGlyphs.set(key, g);
+      return g;
+    }
+
+    // LRU éviction si atlas plein
+    if (this._atlasGlyphs.size >= this.maxTextCacheSize) {
+      const oldest = this._atlasGlyphs.keys().next().value;
+      this._atlasGlyphs.delete(oldest);
+    }
+
+    // Rasteriser dans le canvas atlas CPU
+    const m   = this._getFontMetrics(font);
+    const ctx = this._atlasCtx;
+    ctx.font  = font;
+
+    const tm      = ctx.measureText(char);
+    const gw      = Math.ceil(tm.width)  + m.pad * 2;
+    const gh      = Math.ceil(m.lineH)   + m.pad * 2;
+    const advance = tm.width;
+
+    // Retour à la ligne si dépassement horizontal
+    if (this._atlasCursor.x + gw > this.atlasSize) {
+      this._atlasCursor.x    = 0;
+      this._atlasCursor.y   += this._atlasCursor.rowH + 1;
+      this._atlasCursor.rowH = 0;
+    }
+
+    // Atlas saturé verticalement → rebuild complet
+    if (this._atlasCursor.y + gh > this.atlasSize) {
+      this._rebuildAtlas();
+      return this._getGlyph(char, font); // retry après rebuild
+    }
+
+    const ax = this._atlasCursor.x;
+    const ay = this._atlasCursor.y;
+
+    // Dessiner le glyphe en blanc (couleur appliquée dans le shader via a_color)
+    ctx.clearRect(ax, ay, gw, gh);
+    ctx.fillStyle    = '#ffffff';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(char, ax + m.pad, ay + m.pad + m.size);
+
+    this._atlasCursor.x    += gw + 1;
+    this._atlasCursor.rowH  = Math.max(this._atlasCursor.rowH, gh);
+
+    const S = this.atlasSize;
+    const glyph = {
+      u0: ax       / S,
+      v0: ay       / S,
+      u1: (ax + gw) / S,
+      v1: (ay + gh) / S,
+      w:  gw,
+      h:  gh,
+      advance,
+      baselineY: m.pad + m.size   // offset baseline dans le glyphe
+    };
+
+    this._atlasGlyphs.set(key, glyph);
+    this._atlasDirty = true;
+    this.stats.glyphsCached++;
+
+    return glyph;
+  }
+
+  /**
+   * Reconstruit l'atlas depuis zéro avec uniquement les glyphes actuels.
+   * Appelé quand l'atlas est saturé.
+   */
+  _rebuildAtlas() {
+    const ctx   = this._atlasCtx;
+    ctx.clearRect(0, 0, this.atlasSize, this.atlasSize);
+
+    this._atlasCursor = { x: 0, y: 0, rowH: 0 };
+
+    // Conserver les glyphes actuels mais les repositionner
+    const existing = [...this._atlasGlyphs.entries()];
+    this._atlasGlyphs.clear();
+
+    // Re-rasteriser les plus récents (fin de Map = plus récents)
+    const toKeep = existing.slice(-Math.floor(this.maxTextCacheSize * 0.7));
+    for (const [key] of toKeep) {
+      const [char, font] = key.split('|');
+      if (char && font) this._getGlyph(char, font);
+    }
+
+    this._atlasDirty = true;
+  }
+
+  _maybeRebuildAtlas() {
+    // Rebuild si > 90% plein
+    if (this._atlasGlyphs.size > this.maxTextCacheSize * 0.9) {
+      this._rebuildAtlas();
+    }
+  }
+
+  /**
+   * Upload la texture atlas vers le GPU si elle a changé.
+   * Appelé UNE seule fois par frame, juste avant le draw call.
+   */
+  _uploadAtlasIfDirty() {
+    if (!this._atlasDirty) return;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this._atlasTex);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA,
+      gl.RGBA, gl.UNSIGNED_BYTE,
+      this._atlasCanvas
+    );
+    this._atlasDirty = false;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // BATCH — accumulation des instances
+  // ══════════════════════════════════════════════════════════════════════
+
   beginTextBatch() {
-    this.batchMode = true;
-    this.textBatch = [];
+    this._batchMode     = true;
+    this._instanceCount = 0;
+  }
+
+  /**
+   * Ajoute tous les glyphes d'un texte au batch courant.
+   * Aucun draw call GPU ici — juste écriture dans _instanceData (CPU).
+   */
+  _enqueueText(text, x, y) {
+    if (!this._glReady) {
+      // Fallback Canvas 2D
+      this.ctx.font         = this._currentFont;
+      this.ctx.fillStyle    = this._currentFillStyle;
+      this.ctx.textAlign    = this._currentTextAlign;
+      this.ctx.textBaseline = this._currentTextBaseline;
+      this.ctx.fillText(text, x, y);
+      return;
+    }
+
+    const font     = this._currentFont;
+    const [r,g,b,a] = this._currentFillRGBA;
+    const align    = this._currentTextAlign;
+    const baseline = this._currentTextBaseline;
+    const m        = this._getFontMetrics(font);
+
+    // Calcul largeur totale pour alignement
+    let totalW = 0;
+    for (let i = 0; i < text.length; i++) {
+      const g = this._getGlyph(text[i], font);
+      if (g) totalW += g.advance;
+    }
+
+    let curX = x;
+    if      (align === 'center')              curX -= totalW / 2;
+    else if (align === 'right' || align === 'end') curX -= totalW;
+
+    // Offset vertical selon baseline
+    const baselineOffsets = {
+      alphabetic:  0,
+      top:         m.size * 0.85,
+      middle:      m.size * 0.35,
+      bottom:     -m.size * 0.15,
+      hanging:     m.size * 0.75,
+      ideographic:-m.size * 0.1
+    };
+    const baseOff = baselineOffsets[baseline] ?? 0;
+
+    // Écrire chaque glyphe comme une instance dans le tableau CPU
+    for (let i = 0; i < text.length; i++) {
+      if (this._instanceCount >= this.maxBatchSize) {
+        // Auto-flush si batch saturé
+        this._flushGPU();
+        this._instanceCount = 0;
+      }
+
+      const glyph = this._getGlyph(text[i], font);
+      if (!glyph) { curX += m.size * 0.5; continue; }
+
+      // Culling par glyphe
+      if (this.enableCulling) {
+        const sx = curX;
+        const sy = y - glyph.baselineY + baseOff;
+        if (sx + glyph.w < this._viewport.l ||
+            sx           > this._viewport.r ||
+            sy + glyph.h < this._viewport.t ||
+            sy           > this._viewport.b) {
+          curX += glyph.advance;
+          this.stats.culled++;
+          continue;
+        }
+      }
+
+      const off = this._instanceCount * this._FLOATS_PER_INSTANCE;
+      const d   = this._instanceData;
+
+      // Position destination (pixels)
+      d[off + 0] = Math.round(curX);
+      d[off + 1] = Math.round(y - glyph.baselineY + baseOff);
+      d[off + 2] = glyph.w;
+      d[off + 3] = glyph.h;
+
+      // UV dans l'atlas
+      d[off + 4] = glyph.u0;
+      d[off + 5] = glyph.v0;
+      d[off + 6] = glyph.u1;
+      d[off + 7] = glyph.v1;
+
+      // Couleur RGBA
+      d[off + 8]  = r;
+      d[off + 9]  = g;
+      d[off + 10] = b;
+      d[off + 11] = a;
+
+      this._instanceCount++;
+      curX += glyph.advance;
+    }
+  }
+
+  /**
+   * Envoie le batch au GPU en UN SEUL draw call.
+   * C'est ici que se trouve le gain de performance réel.
+   */
+  _flushGPU() {
+    if (this._instanceCount === 0 || !this._glReady) return;
+
+    const gl   = this.gl;
+    const loc  = this._loc;
+    const ext  = this._ext; // null si WebGL2
+
+    // 1. Upload atlas si modifié
+    this._uploadAtlasIfDirty();
+
+    // 2. Resize glCanvas si nécessaire
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+    if (this._glCanvas.width !== cw || this._glCanvas.height !== ch) {
+      this._glCanvas.width  = cw;
+      this._glCanvas.height = ch;
+      gl.viewport(0, 0, cw, ch);
+    }
+
+    // 3. Clear + blend
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(this._program);
+
+    // 4. Résolution
+    gl.uniform2f(loc.resolution, cw / this.dpr, ch / this.dpr);
+
+    // 5. Atlas texture
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this._atlasTex);
+    gl.uniform1i(loc.atlas, 0);
+
+    // 6. Buffer quad (commun à toutes les instances)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuf);
+    gl.enableVertexAttribArray(loc.quad);
+    gl.vertexAttribPointer(loc.quad, 2, gl.FLOAT, false, 0, 0);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.quad, 0);
+    else     gl.vertexAttribDivisor(loc.quad, 0);
+
+    // 7. Buffer instances — upload uniquement les instances actives
+    const stride = this._FLOATS_PER_INSTANCE * 4; // bytes
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._instanceBuf);
+    gl.bufferSubData(
+      gl.ARRAY_BUFFER, 0,
+      this._instanceData.subarray(0, this._instanceCount * this._FLOATS_PER_INSTANCE)
+    );
+
+    // a_dst : vec4 @ offset 0
+    gl.enableVertexAttribArray(loc.dst);
+    gl.vertexAttribPointer(loc.dst, 4, gl.FLOAT, false, stride, 0);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.dst, 1);
+    else     gl.vertexAttribDivisor(loc.dst, 1);
+
+    // a_uv  : vec4 @ offset 16
+    gl.enableVertexAttribArray(loc.uv);
+    gl.vertexAttribPointer(loc.uv, 4, gl.FLOAT, false, stride, 16);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.uv, 1);
+    else     gl.vertexAttribDivisor(loc.uv, 1);
+
+    // a_color : vec4 @ offset 32
+    gl.enableVertexAttribArray(loc.color);
+    gl.vertexAttribPointer(loc.color, 4, gl.FLOAT, false, stride, 32);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.color, 1);
+    else     gl.vertexAttribDivisor(loc.color, 1);
+
+    // 8. LE draw call unique — dessine N instances du quad unitaire
+    if (ext) ext.drawArraysInstancedANGLE(gl.TRIANGLES, 0, 6, this._instanceCount);
+    else     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this._instanceCount);
+
+    // 9. Copier le résultat WebGL sur le canvas 2D principal
+    this.ctx.drawImage(this._glCanvas, 0, 0);
+
+    this.stats.drawCalls++;
+    this.stats.instancesDrawn += this._instanceCount;
   }
 
   flushTextBatch() {
-    if (this.textBatch.length === 0) {
-      this.batchMode = false;
-      return;
-    }
-
-    // ✅ NOUVEAU : Tri par font/color pour réduire les changements d'état
-    this.textBatch.sort((a, b) => {
-      const keyA = `${a.font}|${a.color}`;
-      const keyB = `${b.font}|${b.color}`;
-      return keyA.localeCompare(keyB);
-    });
-
-    let lastFont = '';
-    let lastColor = '';
-
-    // Dessiner tous les textes du batch
-    for (let item of this.textBatch) {
-      // ✅ NOUVEAU : Éviter les changements d'état inutiles
-      if (item.font !== lastFont) {
-        this._currentFont = item.font;
-        lastFont = item.font;
-      }
-      if (item.color !== lastColor) {
-        this._currentFillStyle = item.color;
-        lastColor = item.color;
-      }
-      
-      this._currentTextAlign = item.align;
-      this._currentTextBaseline = item.baseline;
-      
-      this._drawTextImmediate(item.text, item.x, item.y);
-    }
-
-    this.stats.batchedDraws += this.textBatch.length;
-    this.textBatch = [];
-    this.batchMode = false;
+    this._flushGPU();
+    this._instanceCount = 0;
+    this._batchMode     = false;
   }
 
-  // ────────────────────────────────────────────────
-  // fillText : MÉTHODE PRINCIPALE
-  // ────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // API PUBLIQUE — fillText
+  // ══════════════════════════════════════════════════════════════════════
+
   fillText(text, x, y) {
     if (!text) return;
 
-    const font = this._currentFont;
-    const color = this._currentFillStyle;
-    const align = this._currentTextAlign;
-    const baseline = this._currentTextBaseline;
-
-    // Mode batch
-    if (this.batchMode) {
-      this.textBatch.push({ text, x, y, font, color, align, baseline });
-      
-      // ✅ NOUVEAU : Auto-flush si batch trop grand
-      if (this.textBatch.length >= this.maxBatchSize) {
-        this.flushTextBatch();
-        this.beginTextBatch(); // Redémarrer le batch
-      }
+    if (this._batchMode) {
+      this._enqueueText(text, x, y);
       return;
     }
 
-    this._drawTextImmediate(text, x, y);
+    // Hors batch : flush immédiat après accumulation
+    this._enqueueText(text, x, y);
+    this._flushGPU();
+    this._instanceCount = 0;
   }
 
-  _drawTextImmediate(text, x, y) {
-    const font = this._currentFont;
-    const color = this._currentFillStyle;
-    const align = this._currentTextAlign;
-    const baseline = this._currentTextBaseline;
+  // ══════════════════════════════════════════════════════════════════════
+  // UTILITAIRES
+  // ══════════════════════════════════════════════════════════════════════
 
-    // ✅ Culling optimisé
-    const metrics = this._getFontMetrics(font);
-    const estimatedWidth = text.length * metrics.fontSize * 0.6;
+  /**
+   * Parse une couleur CSS → [r, g, b, a] normalisés [0..1]
+   * Supporte : #rgb #rrggbb rgba() rgb() et les couleurs nommées communes
+   */
+  _parseColor(color) {
+    if (!color) return [0, 0, 0, 1];
 
-    if (!this._isInViewport(x - estimatedWidth/2, y - metrics.fontSize, estimatedWidth, metrics.fontSize * 2)) {
-      this.stats.culledTexts++;
-      return;
-    }
-
-    // Mode atlas par défaut
-    if (this.useTextAtlas) {
-      this._drawTextWithAtlas(text, x, y, font, color, align, baseline);
+    // Cache
+    if (this._colorCache) {
+      const cached = this._colorCache.get(color);
+      if (cached) return cached;
     } else {
-      this._drawTextCached(text, x, y, font, color, align, baseline);
+      this._colorCache = new Map();
     }
 
-    this.stats.drawCalls++;
-  }
+    let r = 0, g = 0, b = 0, a = 1;
 
-  // ✅ Dessiner avec Text Atlas (optimisé)
-  _drawTextWithAtlas(text, x, y, font, color, align, baseline) {
-    // ✅ NOUVEAU : Pré-calcul des métriques
-    const metrics = this._getFontMetrics(font);
-    let totalWidth = 0;
-    const chars = Array.from(text); // Support Unicode
-    const charData = [];
-
-    // Phase 1 : Rasterization (peut être mise en cache)
-    for (let char of chars) {
-      const data = this._rasterizeChar(char, font, color);
-      charData.push(data);
-      totalWidth += data.textWidth;
-    }
-
-    // Phase 2 : Calcul positions
-    let startX = x;
-    if (align === 'center') {
-      startX -= totalWidth / 2;
-    } else if (align === 'right') {
-      startX -= totalWidth;
-    } else if (align === 'end') {
-      startX -= totalWidth; // ✅ Support 'end'
-    }
-
-    const baselineOffset = metrics.fontSize * (this.baselineRatios[baseline] || 0.85);
-
-    // Phase 3 : Rendu
-    let offsetX = 0;
-    for (let i = 0; i < chars.length; i++) {
-      const data = charData[i];
-      const atlas = this.atlases[data.atlasIndex];
-
-      this.ctx.drawImage(
-        atlas.canvas,
-        data.x, data.y, data.width, data.height,
-        Math.round(startX + offsetX), Math.round(y - baselineOffset), 
-        data.width, data.height
-      );
-
-      offsetX += data.textWidth;
-    }
-  }
-
-  // ✅ Ancien système avec LRU
-  _drawTextCached(text, x, y, font, color, align, baseline) {
-    const key = `${text}|${font}|${color}|${align}|${baseline}`;
-    
-    // ✅ NOUVEAU : LRU tracking
-    this._touchLRU(key);
-    
-    let cached = this.textCache.get(key);
-
-    if (!cached) {
-      const rasterized = this._rasterizeText(text, font, color, align, baseline);
-      const texture = this._createWebGLTexture(rasterized.canvas, rasterized.width, rasterized.height);
-
-      cached = {
-        texture,
-        width: rasterized.width,
-        height: rasterized.height,
-        textWidth: rasterized.textWidth,
-        baselineOffset: rasterized.baselineOffset,
-        createdAt: Date.now()
-      };
-
-      this.textCache.set(key, cached);
-      
-      // ✅ NOUVEAU : Eviction immédiate si trop grand
-      if (this.textCache.size > this.maxTextCacheSize) {
-        this._scheduleCleanup();
+    if (color[0] === '#') {
+      const hex = color.slice(1);
+      if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16) / 255;
+        g = parseInt(hex[1] + hex[1], 16) / 255;
+        b = parseInt(hex[2] + hex[2], 16) / 255;
+      } else if (hex.length === 6) {
+        r = parseInt(hex.slice(0, 2), 16) / 255;
+        g = parseInt(hex.slice(2, 4), 16) / 255;
+        b = parseInt(hex.slice(4, 6), 16) / 255;
+      } else if (hex.length === 8) {
+        r = parseInt(hex.slice(0, 2), 16) / 255;
+        g = parseInt(hex.slice(2, 4), 16) / 255;
+        b = parseInt(hex.slice(4, 6), 16) / 255;
+        a = parseInt(hex.slice(6, 8), 16) / 255;
+      }
+    } else if (color.startsWith('rgb')) {
+      const nums = color.match(/[\d.]+/g);
+      if (nums) {
+        r = +nums[0] / 255;
+        g = +nums[1] / 255;
+        b = +nums[2] / 255;
+        a = nums[3] !== undefined ? +nums[3] : 1;
       }
     }
 
-    let finalX = x - 8;
-    if (align === 'center') finalX -= cached.textWidth / 2;
-    else if (align === 'right' || align === 'end') finalX -= cached.textWidth;
-
-    const finalY = y - 8 - cached.baselineOffset;
-
-    this._drawTextureToCanvas(cached.texture, cached.width, cached.height, 
-      Math.round(finalX), Math.round(finalY));
+    const result = [r, g, b, a];
+    this._colorCache.set(color, result);
+    return result;
   }
 
-  // ✅ NOUVEAU : LRU tracking
-  _touchLRU(key) {
-    const index = this.lruKeys.indexOf(key);
-    if (index > -1) {
-      this.lruKeys.splice(index, 1);
-    }
-    this.lruKeys.push(key);
+  updateViewport(l = 0, t = 0, r = this.canvas.width, b = this.canvas.height) {
+    this._viewport = { l, t, r, b };
   }
 
-  // ────────────────────────────────────────────────
-  // Méthodes auxiliaires
-  // ────────────────────────────────────────────────
-  _rasterizeText(text, font, color, align, baseline) {
-    const metrics = this._getFontMetrics(font);
-    this.textCtx.font = font;
-    const textMetrics = this.textCtx.measureText(text);
-    
-    const width = Math.ceil(textMetrics.width) + 16;
-    const height = Math.ceil(metrics.lineHeight) + 16;
-
-    // ✅ NOUVEAU : Resize seulement si nécessaire
-    if (this.textCanvas.width < width) {
-      this.textCanvas.width = Math.min(width, 4096); // ✅ Limite max
-    }
-    if (this.textCanvas.height < height) {
-      this.textCanvas.height = Math.min(height, 4096);
-    }
-
-    this.textCtx.clearRect(0, 0, width, height);
-    this.textCtx.font = font;
-    this.textCtx.fillStyle = color;
-    this.textCtx.textAlign = 'left';
-    this.textCtx.textBaseline = 'alphabetic';
-
-    const offsetY = metrics.fontSize * (this.baselineRatios[baseline] || 0.85);
-    this.textCtx.fillText(text, 8, 8 + offsetY);
-
-    return { 
-      canvas: this.textCanvas, 
-      width, 
-      height, 
-      textWidth: textMetrics.width, 
-      baselineOffset: offsetY 
-    };
+  measureText(text) {
+    if (this.ctx.font !== this._currentFont) this.ctx.font = this._currentFont;
+    return this.ctx.measureText(text);
   }
 
-  _createWebGLTexture(canvas, width, height) {
-    const gl = this.gl;
-    const texture = gl.createTexture();
-    
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-
-    return texture;
-  }
-
-  _drawTextureToCanvas(texture, width, height, x, y) {
-    const gl = this.gl;
-    
-    if (this.glCanvas.width !== width || this.glCanvas.height !== height) {
-      this.glCanvas.width = width;
-      this.glCanvas.height = height;
-    }
-
-    gl.viewport(0, 0, width, height);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(this.program);
-
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0,0, width,0, 0,height, width,height]), gl.STATIC_DRAW);
-
-    gl.enableVertexAttribArray(this.positionLocation);
-    gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.texCoordBuffer);
-    gl.enableVertexAttribArray(this.texCoordLocation);
-    gl.vertexAttribPointer(this.texCoordLocation, 2, gl.FLOAT, false, 0, 0);
-
-    gl.uniform2f(this.resolutionLocation, width, height);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-    this.ctx.drawImage(this.glCanvas, x, y, width, height);
-  }
-
-  // ────────────────────────────────────────────────
-  // ✅ Nettoyage optimisé avec debounce
-  // ────────────────────────────────────────────────
-  _scheduleCleanup() {
-    if (this._cleanupScheduled) return;
-    
-    this._cleanupScheduled = true;
-    requestIdleCallback(() => {
-      this._cleanOldCache();
-      this._cleanupScheduled = false;
-    }, { timeout: 1000 });
-  }
-
-  _cleanOldCache() {
-    if (this.textCache.size <= this.maxTextCacheSize) return;
-    
-    const gl = this.gl;
-    const toRemove = this.textCache.size - this.maxTextCacheSize;
-    
-    // ✅ NOUVEAU : Utiliser LRU pour supprimer les moins utilisés
-    const keysToRemove = this.lruKeys.splice(0, toRemove);
-    
-    keysToRemove.forEach(key => {
-      const entry = this.textCache.get(key);
-      if (entry?.texture) {
-        gl.deleteTexture(entry.texture);
-      }
-      this.textCache.delete(key);
-    });
-  }
-
-  // ────────────────────────────────────────────────
-  // Stats & utils
-  // ────────────────────────────────────────────────
   getStats() {
     return {
       ...this.stats,
-      atlasSize: this.charAtlas.size,
-      cacheSize: this.textCache.size,
-      cacheHitRate: this.stats.cacheHits / (this.stats.cacheHits + this.stats.cacheMisses) || 0,
-      atlasCount: this.atlases.length,
-      avgAtlasUsage: this.atlases.reduce((sum, a) => sum + a.usage, 0) / this.atlases.length
+      glyphsInAtlas: this._atlasGlyphs.size,
+      batchPending:  this._instanceCount
     };
   }
 
   resetStats() {
-    this.stats = { 
-      cacheHits: 0, 
-      cacheMisses: 0, 
-      drawCalls: 0, 
-      culledTexts: 0,
-      batchedDraws: 0,
-      atlasCount: this.atlases.length
-    };
+    this.stats = { drawCalls: 0, glyphsCached: 0, culled: 0, instancesDrawn: 0 };
   }
 
-  // ✅ NOUVEAU : Clear all caches
-  clearCaches() {
-    this.charAtlas.clear();
-    this.fontMetricsCache.clear();
-    
-    const gl = this.gl;
-    this.textCache.forEach(entry => {
-      if (entry.texture) gl.deleteTexture(entry.texture);
-    });
-    this.textCache.clear();
-    this.lruKeys = [];
+  // ══════════════════════════════════════════════════════════════════════
+  // SETTERS / GETTERS Canvas 2D standard
+  // ══════════════════════════════════════════════════════════════════════
 
-    // Clear all atlases
-    this.atlases.forEach((atlas, i) => this._clearAtlas(i));
-    this.currentAtlasIndex = 0;
+  set font(v)         { this._currentFont = v;                     this.ctx.font         = v; }
+  get font()          { return this._currentFont; }
+
+  set fillStyle(v)    {
+    this._currentFillStyle = v;
+    this._currentFillRGBA  = this._parseColor(v);
+    this.ctx.fillStyle = v;
   }
+  get fillStyle()     { return this._currentFillStyle; }
 
-  // ────────────────────────────────────────────────
-  // API Canvas 2D standard
-  // ────────────────────────────────────────────────
-  measureText(text) {
-    const oldFont = this.ctx.font;
-    this.ctx.font = this._currentFont;
-    const metrics = this.ctx.measureText(text);
-    this.ctx.font = oldFont;
-    return metrics;
-  }
+  set textAlign(v)    { this._currentTextAlign    = v; this.ctx.textAlign    = v; }
+  get textAlign()     { return this._currentTextAlign; }
 
-  set font(value) { this._currentFont = value; this.ctx.font = value; }
-  get font() { return this._currentFont; }
-  set fillStyle(value) { this._currentFillStyle = value; this.ctx.fillStyle = value; }
-  get fillStyle() { return this._currentFillStyle; }
-  set textAlign(value) { this._currentTextAlign = value; this.ctx.textAlign = value; }
-  get textAlign() { return this._currentTextAlign; }
-  set textBaseline(value) { this._currentTextBaseline = value; this.ctx.textBaseline = value; }
-  get textBaseline() { return this._currentTextBaseline; }
+  set textBaseline(v) { this._currentTextBaseline = v; this.ctx.textBaseline = v; }
+  get textBaseline()  { return this._currentTextBaseline; }
 
-  clearRect(...args) { this.ctx.clearRect(...args); }
-  fillRect(...args) { this.ctx.fillRect(...args); }
-  strokeRect(...args) { this.ctx.strokeRect(...args); }
-  beginPath() { this.ctx.beginPath(); }
-  moveTo(...args) { this.ctx.moveTo(...args); }
-  lineTo(...args) { this.ctx.lineTo(...args); }
-  arc(...args) { this.ctx.arc(...args); }
-  closePath() { this.ctx.closePath(); }
-  fill() { this.ctx.fill(); }
-  stroke() { this.ctx.stroke(); }
-  drawImage(...args) { this.ctx.drawImage(...args); }
-  save() { this.ctx.save(); }
-  restore() { this.ctx.restore(); }
-  translate(...args) { this.ctx.translate(...args); }
-  rotate(...args) { this.ctx.rotate(...args); }
-  scale(...args) { this.ctx.scale(...args); }
-  createLinearGradient(...args) { return this.ctx.createLinearGradient(...args); }
+  set strokeStyle(v)  { this.ctx.strokeStyle = v; }
+  get strokeStyle()   { return this.ctx.strokeStyle; }
+  set lineWidth(v)    { this.ctx.lineWidth   = v; }
+  get lineWidth()     { return this.ctx.lineWidth; }
+  set globalAlpha(v)  { this.ctx.globalAlpha = v; }
+  get globalAlpha()   { return this.ctx.globalAlpha; }
 
-  set strokeStyle(value) { this.ctx.strokeStyle = value; }
-  get strokeStyle() { return this.ctx.strokeStyle; }
-  set lineWidth(value) { this.ctx.lineWidth = value; }
-  get lineWidth() { return this.ctx.lineWidth; }
-  set globalAlpha(value) { this.ctx.globalAlpha = value; }
-  get globalAlpha() { return this.ctx.globalAlpha; }
+  // Toutes les opérations non-texte passent directement au ctx 2D
+  clearRect(...a)            { this.ctx.clearRect(...a); }
+  fillRect(...a)             { this.ctx.fillRect(...a); }
+  strokeRect(...a)           { this.ctx.strokeRect(...a); }
+  beginPath()                { this.ctx.beginPath(); }
+  moveTo(...a)               { this.ctx.moveTo(...a); }
+  lineTo(...a)               { this.ctx.lineTo(...a); }
+  arc(...a)                  { this.ctx.arc(...a); }
+  rect(...a)                 { this.ctx.rect(...a); }
+  closePath()                { this.ctx.closePath(); }
+  fill(...a)                 { this.ctx.fill(...a); }
+  stroke()                   { this.ctx.stroke(); }
+  drawImage(...a)            { this.ctx.drawImage(...a); }
+  save()                     { this.ctx.save(); }
+  restore()                  { this.ctx.restore(); }
+  translate(...a)            { this.ctx.translate(...a); }
+  rotate(...a)               { this.ctx.rotate(...a); }
+  scale(...a)                { this.ctx.scale(...a); }
+  setTransform(...a)         { this.ctx.setTransform(...a); }
+  clip(...a)                 { this.ctx.clip(...a); }
+  createLinearGradient(...a) { return this.ctx.createLinearGradient(...a); }
+  createRadialGradient(...a) { return this.ctx.createRadialGradient(...a); }
+  createPattern(...a)        { return this.ctx.createPattern(...a); }
 
   resize(width, height) {
-    this.canvas.width = width * this.dpr;
-    this.canvas.height = height * this.dpr;
-    this.canvas.style.width = `${width}px`;
+    this.canvas.width        = width  * this.dpr;
+    this.canvas.height       = height * this.dpr;
+    this.canvas.style.width  = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    // Reset transform avant scale pour éviter accumulation
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.scale(this.dpr, this.dpr);
-    
-    // ✅ NOUVEAU : Update viewport
     this.updateViewport(0, 0, width, height);
   }
 
   destroy() {
+    clearInterval(this._cleanupTimer);
+
     if (this.gl) {
       const gl = this.gl;
-      this.textCache.forEach(entry => { 
-        if (entry.texture) gl.deleteTexture(entry.texture); 
-      });
-      gl.deleteBuffer(this.positionBuffer);
-      gl.deleteBuffer(this.texCoordBuffer);
-      gl.deleteProgram(this.program);
+      gl.deleteTexture(this._atlasTex);
+      gl.deleteBuffer(this._quadBuf);
+      gl.deleteBuffer(this._instanceBuf);
+      gl.deleteProgram(this._program);
     }
-    
-    if (this._textCleanupInterval) {
-      clearInterval(this._textCleanupInterval);
-    }
-    
-    this.clearCaches();
+
+    this._atlasGlyphs.clear();
+    this._fontMetrics.clear();
+    if (this._colorCache) this._colorCache.clear();
   }
 }
 
