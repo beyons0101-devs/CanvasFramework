@@ -89,6 +89,12 @@ class WebGLCanvasAdapter {
     // ── Stats ─────────────────────────────────────────────────────────
     this.stats = { drawCalls: 0, glyphsCached: 0, culled: 0, instancesDrawn: 0 };
 
+    // ── Cache couleurs (initialisé ici pour éviter la création lazy dans _parseColor) ──
+    this._colorCache = new Map();
+
+    // ── Flag anti-récursion pour _rebuildAtlas ─────────────────────────
+    this._rebuilding = false;
+
     // Nettoyage périodique de l'atlas si saturation
     this._cleanupTimer = setInterval(() => this._maybeRebuildAtlas(), 30000);
   }
@@ -108,14 +114,17 @@ class WebGLCanvasAdapter {
       alpha:                  true,
       premultipliedAlpha:     false,
       antialias:              false,
-      preserveDrawingBuffer:  true,   // nécessaire pour drawImage final
+      // preserveDrawingBuffer: false (défaut) — le résultat est copié via drawImage()
+      // immédiatement après chaque draw call, donc pas besoin de préserver le buffer.
+      // Laisser à false permet au driver GPU d'utiliser le double-buffering natif.
+      preserveDrawingBuffer:  false,
       powerPreference:        'high-performance'
     });
 
     // Fallback WebGL1 si WebGL2 indispo
     this.gl = gl || this._glCanvas.getContext('webgl', {
       alpha: true, premultipliedAlpha: false,
-      antialias: false, preserveDrawingBuffer: true
+      antialias: false, preserveDrawingBuffer: false
     });
 
     if (!this.gl) throw new Error('WebGL non disponible');
@@ -265,6 +274,54 @@ class WebGLCanvasAdapter {
       this._instanceData.byteLength,
       gl.DYNAMIC_DRAW
     );
+
+    // VAO WebGL2 : enregistre le layout des attributs une seule fois.
+    // Évite de rebinder chaque attribut à chaque draw call (gain CPU mesurable).
+    if (this._isWebGL2) {
+      this._vao = gl.createVertexArray();
+      gl.bindVertexArray(this._vao);
+      this._setupAttribPointers();
+      gl.bindVertexArray(null);
+    }
+  }
+
+  /**
+   * Configure les pointeurs d'attributs vertex (appelé une fois dans le VAO,
+   * ou à chaque draw call en WebGL1).
+   * @private
+   */
+  _setupAttribPointers() {
+    const gl    = this.gl;
+    const loc   = this._loc;
+    const ext   = this._ext;
+    const stride = this._FLOATS_PER_INSTANCE * 4;
+
+    // Quad (diviseur 0 = même valeur pour toutes les instances)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuf);
+    gl.enableVertexAttribArray(loc.quad);
+    gl.vertexAttribPointer(loc.quad, 2, gl.FLOAT, false, 0, 0);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.quad, 0);
+    else     gl.vertexAttribDivisor(loc.quad, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, this._instanceBuf);
+
+    // a_dst : vec4 @ offset 0
+    gl.enableVertexAttribArray(loc.dst);
+    gl.vertexAttribPointer(loc.dst, 4, gl.FLOAT, false, stride, 0);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.dst, 1);
+    else     gl.vertexAttribDivisor(loc.dst, 1);
+
+    // a_uv  : vec4 @ offset 16
+    gl.enableVertexAttribArray(loc.uv);
+    gl.vertexAttribPointer(loc.uv, 4, gl.FLOAT, false, stride, 16);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.uv, 1);
+    else     gl.vertexAttribDivisor(loc.uv, 1);
+
+    // a_color : vec4 @ offset 32
+    gl.enableVertexAttribArray(loc.color);
+    gl.vertexAttribPointer(loc.color, 4, gl.FLOAT, false, stride, 32);
+    if (ext) ext.vertexAttribDivisorANGLE(loc.color, 1);
+    else     gl.vertexAttribDivisor(loc.color, 1);
   }
 
   _setupAtlasTexture() {
@@ -373,8 +430,12 @@ class WebGLCanvasAdapter {
   /**
    * Reconstruit l'atlas depuis zéro avec uniquement les glyphes actuels.
    * Appelé quand l'atlas est saturé.
+   * Protégé contre la réentrance par _rebuilding.
    */
   _rebuildAtlas() {
+    if (this._rebuilding) return; // évite la récursion infinie
+    this._rebuilding = true;
+
     const ctx   = this._atlasCtx;
     ctx.clearRect(0, 0, this.atlasSize, this.atlasSize);
 
@@ -391,7 +452,8 @@ class WebGLCanvasAdapter {
       if (char && font) this._getGlyph(char, font);
     }
 
-    this._atlasDirty = true;
+    this._atlasDirty  = true;
+    this._rebuilding  = false;
   }
 
   _maybeRebuildAtlas() {
@@ -403,14 +465,18 @@ class WebGLCanvasAdapter {
 
   /**
    * Upload la texture atlas vers le GPU si elle a changé.
+   * Utilise texSubImage2D (mise à jour partielle) plutôt que texImage2D (ré-allocation
+   * complète) pour éviter un round-trip mémoire GPU inutile à chaque modification.
    * Appelé UNE seule fois par frame, juste avant le draw call.
    */
   _uploadAtlasIfDirty() {
     if (!this._atlasDirty) return;
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this._atlasTex);
-    gl.texImage2D(
-      gl.TEXTURE_2D, 0, gl.RGBA,
+    // texSubImage2D met à jour les données sans réallouer le stockage GPU
+    gl.texSubImage2D(
+      gl.TEXTURE_2D, 0,
+      0, 0,               // offset x, y dans la texture
       gl.RGBA, gl.UNSIGNED_BYTE,
       this._atlasCanvas
     );
@@ -558,42 +624,28 @@ class WebGLCanvasAdapter {
     gl.bindTexture(gl.TEXTURE_2D, this._atlasTex);
     gl.uniform1i(loc.atlas, 0);
 
-    // 6. Buffer quad (commun à toutes les instances)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._quadBuf);
-    gl.enableVertexAttribArray(loc.quad);
-    gl.vertexAttribPointer(loc.quad, 2, gl.FLOAT, false, 0, 0);
-    if (ext) ext.vertexAttribDivisorANGLE(loc.quad, 0);
-    else     gl.vertexAttribDivisor(loc.quad, 0);
-
-    // 7. Buffer instances — upload uniquement les instances actives
-    const stride = this._FLOATS_PER_INSTANCE * 4; // bytes
+    // 6. Upload uniquement les instances actives dans le buffer GPU
     gl.bindBuffer(gl.ARRAY_BUFFER, this._instanceBuf);
     gl.bufferSubData(
       gl.ARRAY_BUFFER, 0,
       this._instanceData.subarray(0, this._instanceCount * this._FLOATS_PER_INSTANCE)
     );
 
-    // a_dst : vec4 @ offset 0
-    gl.enableVertexAttribArray(loc.dst);
-    gl.vertexAttribPointer(loc.dst, 4, gl.FLOAT, false, stride, 0);
-    if (ext) ext.vertexAttribDivisorANGLE(loc.dst, 1);
-    else     gl.vertexAttribDivisor(loc.dst, 1);
-
-    // a_uv  : vec4 @ offset 16
-    gl.enableVertexAttribArray(loc.uv);
-    gl.vertexAttribPointer(loc.uv, 4, gl.FLOAT, false, stride, 16);
-    if (ext) ext.vertexAttribDivisorANGLE(loc.uv, 1);
-    else     gl.vertexAttribDivisor(loc.uv, 1);
-
-    // a_color : vec4 @ offset 32
-    gl.enableVertexAttribArray(loc.color);
-    gl.vertexAttribPointer(loc.color, 4, gl.FLOAT, false, stride, 32);
-    if (ext) ext.vertexAttribDivisorANGLE(loc.color, 1);
-    else     gl.vertexAttribDivisor(loc.color, 1);
+    // 7. Lier les attributs vertex
+    if (this._vao) {
+      // WebGL2 : le VAO a déjà mémorisé le layout — un seul bind suffit
+      gl.bindVertexArray(this._vao);
+    } else {
+      // WebGL1 : rebinder les attributs manuellement à chaque draw call
+      this._setupAttribPointers();
+    }
 
     // 8. LE draw call unique — dessine N instances du quad unitaire
     if (ext) ext.drawArraysInstancedANGLE(gl.TRIANGLES, 0, 6, this._instanceCount);
     else     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this._instanceCount);
+
+    // Libérer le VAO après usage
+    if (this._vao) gl.bindVertexArray(null);
 
     // 9. Copier le résultat WebGL sur le canvas 2D principal
     this.ctx.drawImage(this._glCanvas, 0, 0);
@@ -632,18 +684,14 @@ class WebGLCanvasAdapter {
 
   /**
    * Parse une couleur CSS → [r, g, b, a] normalisés [0..1]
-   * Supporte : #rgb #rrggbb rgba() rgb() et les couleurs nommées communes
+   * Supporte : #rgb #rrggbb #rrggbbaa rgba() rgb() et les couleurs nommées communes.
+   * Le cache (_colorCache) est initialisé dans le constructeur.
    */
   _parseColor(color) {
     if (!color) return [0, 0, 0, 1];
 
-    // Cache
-    if (this._colorCache) {
-      const cached = this._colorCache.get(color);
-      if (cached) return cached;
-    } else {
-      this._colorCache = new Map();
-    }
+    const cached = this._colorCache.get(color);
+    if (cached) return cached;
 
     let r = 0, g = 0, b = 0, a = 1;
 
@@ -769,6 +817,7 @@ class WebGLCanvasAdapter {
       gl.deleteTexture(this._atlasTex);
       gl.deleteBuffer(this._quadBuf);
       gl.deleteBuffer(this._instanceBuf);
+      if (this._vao) gl.deleteVertexArray(this._vao);
       gl.deleteProgram(this._program);
     }
 
