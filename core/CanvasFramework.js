@@ -227,11 +227,10 @@ class WorkerPool {
                             result = { state };
                             break;
                         
-                        case 'EXECUTE':
-                            const fn = new Function('state', 'args', payload.fnString);
-                            result = await fn(state, payload.args);
-                            break;
-                        
+                        // NOTE SECURITE : le type EXECUTE (new Function / eval) a ete supprime.
+                        // Il permettait l'injection de code arbitraire depuis le thread principal.
+                        // Utiliser le type COMPUTE pour transmettre des donnees, ou ajouter
+                        // des handlers specifiques dans ce switch.
                         case 'COMPUTE':
                             result = payload.data;
                             break;
@@ -301,19 +300,40 @@ class WorkerPool {
         this._processQueue();
     }
     
-    execute(type, payload) {
+    execute(type, payload, timeoutMs = 10000) {
         return new Promise((resolve, reject) => {
             const taskId = ++this.taskIdCounter;
-            
+            let timer = null;
+
+            // Timeout de tâche : évite qu'un worker gelé bloque indéfiniment
+            if (timeoutMs > 0) {
+                timer = setTimeout(() => {
+                    if (this.pendingTasks.has(taskId)) {
+                        this.pendingTasks.delete(taskId);
+                        reject(new Error(`Worker task ${taskId} timed out after ${timeoutMs}ms`));
+                    } else {
+                        // Tâche encore dans la queue
+                        const idx = this.taskQueue.findIndex(t => t.taskId === taskId);
+                        if (idx !== -1) {
+                            this.taskQueue.splice(idx, 1);
+                            reject(new Error(`Worker task ${taskId} expired in queue`));
+                        }
+                    }
+                }, timeoutMs);
+            }
+
+            const wrappedResolve = (v) => { if (timer) clearTimeout(timer); resolve(v); };
+            const wrappedReject  = (e) => { if (timer) clearTimeout(timer); reject(e); };
+
             this.taskQueue.push({
                 taskId,
                 type,
                 payload,
-                resolve,
-                reject,
+                resolve: wrappedResolve,
+                reject:  wrappedReject,
                 timestamp: Date.now()
             });
-            
+
             this._processQueue();
         });
     }
@@ -352,7 +372,30 @@ class WorkerPool {
         };
     }
     
+    /**
+     * Annule une tâche en attente dans la queue (avant qu'elle soit assignée).
+     * Les tâches déjà en cours d'exécution dans un worker ne peuvent pas être annulées.
+     * @param {number} taskId - ID retourné par execute()
+     * @returns {boolean} true si la tâche était dans la queue et a été retirée
+     */
+    cancel(taskId) {
+        const idx = this.taskQueue.findIndex(t => t.taskId === taskId);
+        if (idx !== -1) {
+            const [task] = this.taskQueue.splice(idx, 1);
+            task.reject(new Error(`Task ${taskId} cancelled`));
+            return true;
+        }
+        return false;
+    }
+
     terminateAll() {
+        // Rejeter toutes les tâches en attente avant de terminer
+        for (const task of this.taskQueue) {
+            task.reject(new Error('WorkerPool terminated'));
+        }
+        for (const task of this.pendingTasks.values()) {
+            task.reject(new Error('WorkerPool terminated'));
+        }
         this.workers.forEach(wrapper => {
             wrapper.worker.terminate();
         });
@@ -394,11 +437,24 @@ class CanvasFramework {
 		this.canvas.style.display = 'block';
 		this.canvas.style.touchAction = 'none';
 		this.canvas.style.userSelect = 'none';
+		// Accessibilité : le canvas est une région interactive
+		this.canvas.setAttribute('role', 'application');
+		this.canvas.setAttribute('aria-label', options.ariaLabel || 'Application');
+		this.canvas.setAttribute('tabindex', '0'); // permet le focus clavier
 		document.body.appendChild(this.canvas);
-        
+
+		// ✅ FIX CRITIQUE : dpr / width / height initialisés AVANT la création du contexte.
+		// WebGLCanvasAdapter reçoit dpr en option — s'il est undefined au moment
+		// de l'appel, le rendu est décalé sur les écrans haute densité (Retina, etc.).
+		this.dpr    = window.devicePixelRatio || 1;
+		this.width  = window.innerWidth;
+		this.height = window.innerHeight;
+
+		this.backgroundColor = options.backgroundColor || '#f5f5f5';
+
 		// NOUVELLE OPTION: choisir entre Canvas 2D et WebGL
-        this.useWebGL = options.useWebGL ?? false;   // utilise la valeur si fournie, sinon false
-    
+		this.useWebGL = options.useWebGL ?? false;
+
 		// Initialiser le contexte approprié
 		if (this.useWebGL) {
 		  try {
@@ -422,14 +478,6 @@ class CanvasFramework {
 		    willReadFrequently: false
 		  });
 		}
-		//this.ctx.scale(this.dpr, this.dpr);
-		
-        this.backgroundColor = options.backgroundColor || '#f5f5f5'; // Blanc par défaut
-
-        this.width = window.innerWidth;
-        this.height = window.innerHeight;
-
-        this.dpr = window.devicePixelRatio || 1;
 
         // ✅ OPTIMISATION OPTION 2: Configuration des optimisations
         this.optimizations = {
@@ -453,13 +501,16 @@ class CanvasFramework {
         };
 
         // ✅ OPTIMISATION OPTION 2: Cache des images/textes
+        // textCache est utilisé par fillTextCached() pour éviter de rasteriser
+        // le même texte plusieurs fois. Limité à 500 entrées LRU.
         this.imageCache = new Map();
-        this.textCache = new Map();
+        this.textCache  = new Map();
 
         // ✅ OPTIMISATION OPTION 2: Double buffering
+        // Desactivé en mode WebGL : l'adapter gère déjà son propre canvas off-screen.
         this._doubleBuffer = null;
         this._bufferCtx = null;
-        if (this.optimizations.useDoubleBuffering) {
+        if (this.optimizations.useDoubleBuffering && !this.useWebGL) {
             this._initDoubleBuffer();
         }
 
@@ -1906,11 +1957,10 @@ class CanvasFramework {
 	 * @param {*} args - Arguments pour la fonction
 	 * @returns {Promise} Résultat de l'exécution
 	 */
-	async executeTask(fnString, args = {}) {
-		return this.workerPool.execute('EXECUTE', {
-			fnString,
-			args
-		});
+	async executeTask(data, timeoutMs = 10000) {
+		// NOTE : le type EXECUTE (new Function) a été supprimé (sécurité).
+		// Utiliser COMPUTE pour transmettre des données au worker.
+		return this.workerPool.execute('COMPUTE', { data }, timeoutMs);
 	}
 
 	/**
@@ -3102,10 +3152,7 @@ class CanvasFramework {
 					if (isFixed) {
 						comp.draw(this.ctx);
 					} else {
-						this.ctx.save();
-						this.ctx.translate(0, 0); // Pas de scroll pendant la transition
-						comp.draw(this.ctx);
-						this.ctx.restore();
+						comp.draw(this.ctx); // pas de scroll pendant la transition
 					}
 				}
 			}
@@ -3127,10 +3174,7 @@ class CanvasFramework {
 					if (isFixed) {
 						comp.draw(this.ctx);
 					} else {
-						this.ctx.save();
-						this.ctx.translate(0, 0); // Pas de scroll pendant la transition
-						comp.draw(this.ctx);
-						this.ctx.restore();
+						comp.draw(this.ctx); // pas de scroll pendant la transition
 					}
 				}
 			}
@@ -3148,10 +3192,7 @@ class CanvasFramework {
 					if (isFixed) {
 						comp.draw(this.ctx);
 					} else {
-						this.ctx.save();
-						this.ctx.translate(0, 0);
-						comp.draw(this.ctx);
-						this.ctx.restore();
+						comp.draw(this.ctx); // pas de scroll pendant la transition
 					}
 				}
 			}
@@ -3168,10 +3209,7 @@ class CanvasFramework {
 					if (isFixed) {
 						comp.draw(this.ctx);
 					} else {
-						this.ctx.save();
-						this.ctx.translate(0, 0);
-						comp.draw(this.ctx);
-						this.ctx.restore();
+						comp.draw(this.ctx); // pas de scroll pendant la transition
 					}
 				}
 			}
@@ -3282,6 +3320,8 @@ class CanvasFramework {
             const startTime = performance.now();
 
             const animate = (currentTime) => {
+                // Stopper si le framework a été détruit pendant l'animation
+                if (this._destroyed) return;
                 const elapsed = currentTime - startTime;
                 const progress = Math.min(elapsed / duration, 1);
                 const ease = this.easeOutCubic(progress);
@@ -3321,6 +3361,10 @@ class CanvasFramework {
      * Nettoie les ressources
      */
     destroy() {
+        // Marquer comme détruit en premier : toute animation en cours
+        // (scrollTo, RAF) vérifiera ce flag avant de poster des messages.
+        this._destroyed = true;
+
         if (this.scrollWorker) {
             this.scrollWorker.terminate();
         }
@@ -3385,6 +3429,33 @@ class CanvasFramework {
         });
         this.add(toast);
         toast.show();
+        // Annoncer le message aux lecteurs d'écran
+        this.announceToScreenReader(message);
+    }
+
+    /**
+     * Envoie un message à une zone aria-live pour les lecteurs d'écran.
+     * La zone est créée une seule fois et réutilisée.
+     * @param {string} message
+     * @param {"polite"|"assertive"} [priority="polite"]
+     */
+    announceToScreenReader(message, priority = 'polite') {
+        if (!this._ariaLive) {
+            this._ariaLive = document.createElement('div');
+            Object.assign(this._ariaLive.style, {
+                position: 'absolute',
+                left: '-9999px',
+                width: '1px',
+                height: '1px',
+                overflow: 'hidden'
+            });
+            this._ariaLive.setAttribute('aria-live', priority);
+            this._ariaLive.setAttribute('aria-atomic', 'true');
+            document.body.appendChild(this._ariaLive);
+        }
+        // Vider puis repeupler pour forcer l'annonce (même texte répété)
+        this._ariaLive.textContent = '';
+        requestAnimationFrame(() => { this._ariaLive.textContent = message; });
     }
 }
 
