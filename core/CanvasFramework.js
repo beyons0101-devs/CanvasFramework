@@ -4,7 +4,7 @@ import Input from '../components/Input.js';
 import Slider from '../components/Slider.js';
 import Text from '../components/Text.js';
 import View from '../components/View.js';
-//import Card from '../components/Card.js';
+import FixedContainers from '../components/FixedContainers.js';
 import Cards from '../components/Cards.js';
 import FAB from '../components/FAB.js';
 import SpeedDialFAB from '../components/SpeedDialFAB.js';
@@ -126,6 +126,7 @@ const FIXED_COMPONENT_TYPES = new Set([
     Modal,
     Tabs,
     FAB,
+	FixedContainers,
     Toast,
     Camera,
     QRCodeReader,
@@ -770,7 +771,7 @@ class CanvasFramework {
 
 			const FIXED_COMPONENT_TYPES = [
 				'AppBar', 'BottomNavigationBar', 'Drawer', 'Dialog', 'Modal', 
-				'Tabs', 'FAB', 'Toast', 'Camera', 'QRCodeReader', 'Banner', 
+				'Tabs', 'FAB', 'Toast', 'Camera', 'QRCodeReader', 'Banner', 'FixedContainers',
 				'SliverAppBar', 'BottomSheet', 'ContextMenu', 'OpenStreetMap', 'SelectDialog'
 			];
 
@@ -2274,6 +2275,9 @@ class CanvasFramework {
 			window.history.replaceState({ route: path, params, query, state }, '', path);
 		}
 
+		// ===== SCROLL TO TOP =====
+		this.scrollTo(0, false); // Reset instantané du scroll avant la nouvelle route
+
 		// ===== CRÉER LES NOUVEAUX COMPOSANTS =====
 		this.components = [];
 		this._isNavigating = true; // ✅ Flag pour empêcher l'auto-démarrages
@@ -2873,6 +2877,29 @@ class CanvasFramework {
             this.updateScrollWorkerComponents();
             this._needsFullRender = true; // Forcer un rendu complet après suppression
         }
+    }
+	
+	/**
+     * Remplace intégralement l'écran actuellement monté par un nouveau.
+     * Démonte proprement tous les composants actuels (comme le fait navigateTo()
+     * en interne) puis monte le nouvel écran. Utile pour re-render un écran
+     * dans une même route (ex: passer d'un état loading à un état chargé)
+     * sans passer par fw.navigate().
+     * @param {Object} screen - Objet retourné par ui.app(...), avec une méthode .mount(fw)
+     */
+    remount(screen) {
+        for (const comp of this.components) {
+            comp.onClick = null;
+            comp.onPress = null;
+            if (comp._unmount && typeof comp._unmount === 'function') {
+                comp._unmount();
+            }
+        }
+        this.components = [];
+        this.updateScrollWorkerComponents();
+        this._needsFullRender = true;
+
+        screen.mount(this);
     }
 
     // 4. Modifiez markComponentDirty() pour éviter de marquer pendant le scroll
