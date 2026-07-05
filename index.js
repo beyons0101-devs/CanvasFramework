@@ -28,6 +28,7 @@ export { default as Video } from './components/Video.js';
 export { default as Modal } from './components/Modal.js';
 export { default as Drawer } from './components/Drawer.js';
 export { default as AppBar } from './components/AppBar.js';
+export { default as FixedContainers } from './components/FixedContainers.js';
 export { default as Chip } from './components/Chip.js';
 export { default as Stepper } from './components/Stepper.js';
 export { default as Accordion } from './components/Accordion.js';
