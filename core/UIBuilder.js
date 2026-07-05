@@ -21,6 +21,7 @@ import Video from '../components/Video.js';
 import Modal from '../components/Modal.js';
 import Drawer from '../components/Drawer.js';
 import AppBar from '../components/AppBar.js';
+import FixedContainers from '../components/FixedContainers.js';
 import Chip from '../components/Chip.js';
 import Stepper from '../components/Stepper.js';
 import Accordion from '../components/Accordion.js';
@@ -60,6 +61,12 @@ import FloatedCamera from '../components/FloatedCamera.js';
 import TimePicker from '../components/TimePicker.js';
 import QRCodeReader from '../components/QRCodeReader.js';
 import QRCodeGenerator from '../components/QRCodeGenerator.js';
+import PaginatedContainer from '../components/PaginatedContainer.js';
+import ColorPicker from '../components/ColorPicker.js';
+import Rating from '../components/Rating.js';
+import Breadcrumb from '../components/Breadcrumb.js';
+import Popover from '../components/Popover.js';
+import PDFViewer from '../components/PDFViewer.js';
 
 // Features
 import PullToRefresh from '../features/PullToRefresh.js';
@@ -85,6 +92,7 @@ const Components = {
   View,
   Cards,
   FAB,
+  FixedContainers,
   SpeedDialFAB,
   MorphingFAB,
   CircularProgress,
@@ -135,6 +143,7 @@ const Components = {
   PasswordInput,
   InputTags,
   InputDatalist,
+  PDFViewer,
   PullToRefresh,
   Skeleton,
   SignaturePad,
@@ -145,7 +154,12 @@ const Components = {
   Column,
   Positioned,
   Banner,
+  PaginatedContainer,
+  ColorPicker,
   Chart,
+  Rating,
+  Breadcrumb,
+  Popover,
   QRCodeGenerator,
   Stack
 };
