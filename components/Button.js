@@ -1,357 +1,310 @@
 import Component from '../core/Component.js';
+import { roundRect, hexToRgb, hexToRgba, darkenColor } from '../core/CanvasUtils.js';
 
 /**
- * Bouton cliquable avec variantes Material et Cupertino
- * @class
- * @extends Component
- * 
- * Types Material: 'filled', 'outlined', 'text', 'elevated', 'tonal'
- * Types Cupertino: 'filled', 'gray', 'tinted', 'bordered', 'plain'
- * Shapes: 'rounded', 'square', 'pill' (très arrondi)
+ * Bouton cliquable avec variantes Material et Cupertino.
+ *
+ * Types Material : 'filled' | 'outlined' | 'text' | 'elevated' | 'tonal'
+ * Types Cupertino : 'filled' | 'gray' | 'tinted' | 'bordered' | 'plain'
+ * Shapes          : 'rounded' | 'square' | 'pill'
  */
 class Button extends Component {
   /**
-   * Crée une instance de Button
-   * @param {CanvasFramework} framework - Framework parent
-   * @param {Object} [options={}] - Options de configuration
-   * @param {string} [options.text='Button'] - Texte
-   * @param {number} [options.fontSize=16] - Taille de police
-   * @param {string} [options.type] - Type de bouton (auto selon platform)
-   * @param {string} [options.shape='rounded'] - Forme: 'rounded', 'square', 'pill'
-   * @param {string} [options.bgColor] - Couleur personnalisée
-   * @param {string} [options.textColor] - Couleur du texte personnalisée
-   * @param {number} [options.elevation=2] - Élévation (Material elevated)
+   * @param {CanvasFramework} framework
+   * @param {Object} [options={}]
+   * @param {string}  [options.text='Button']
+   * @param {number}  [options.fontSize=16]
+   * @param {string}  [options.type]          - Variante selon la plateforme
+   * @param {string}  [options.shape='rounded'] - 'rounded' | 'square' | 'pill'
+   * @param {string}  [options.bgColor]
+   * @param {string}  [options.textColor]
+   * @param {number}  [options.elevation=2]
+   * @param {boolean} [options.disabled=false]
    */
   constructor(framework, options = {}) {
     super(framework, options);
-    this.text = options.text || 'Button';
-    this.fontSize = options.fontSize || 16;
-    this.platform = framework.platform;
-    this.shape = options.shape || 'rounded';
-    
-    // Définir le type de bouton selon la plateforme
+
+    this.text      = options.text  || '';
+    this.fontSize  = options.fontSize || 16;
+    this.platform  = framework.platform;
+    this.shape     = options.shape || 'rounded';
+    this.disabled  = options.disabled || false;
+
     if (this.platform === 'material') {
       this.type = options.type || 'filled';
-      this.setupMaterialStyle(options);
+      this._setupMaterialStyle(options);
     } else {
       this.type = options.type || 'filled';
-      this.setupCupertinoStyle(options);
+      this._setupCupertinoStyle(options);
     }
-    
-    // Effets ripple (Material uniquement)
+
+    // Effet ripple (Material uniquement)
     this.ripples = [];
-    
-    // Bind
-    this.onPress = this.handlePress.bind(this);
+    this._rafId  = null;
+
+    this.onPress = this._handlePress.bind(this);
   }
-  
-  /**
-   * Configure le style Material Design
-   * @private
-   */
-  setupMaterialStyle(options) {
-    const baseColor = options.bgColor || '#6200EE';
+
+  // ─────────────────────────────────────────
+  // SETUP STYLES
+  // ─────────────────────────────────────────
+
+  /** @private */
+  _setupMaterialStyle(options) {
+    const base = options.bgColor || '#6200EE';
     this.elevation = options.elevation || 2;
-    
+
     switch (this.type) {
       case 'filled':
-        this.bgColor = baseColor;
-        this.textColor = options.textColor || '#FFFFFF';
-        this.borderWidth = 0;
-        this.rippleColor = 'rgba(255, 255, 255, 0.3)';
+        this.bgColor      = base;
+        this.textColor    = options.textColor || '#FFFFFF';
+        this.borderWidth  = 0;
+        this.rippleColor  = 'rgba(255,255,255,0.3)';
         break;
-        
+
       case 'outlined':
-        this.bgColor = 'transparent';
-        this.textColor = options.textColor || baseColor;
-        this.borderColor = baseColor;
-        this.borderWidth = 1;
-        this.rippleColor = this.hexToRgba(baseColor, 0.2);
-        this.elevation = 0;
+        this.bgColor      = 'transparent';
+        this.textColor    = options.textColor || base;
+        this.borderColor  = base;
+        this.borderWidth  = 1;
+        this.rippleColor  = hexToRgba(base, 0.2);
+        this.elevation    = 0;
         break;
-        
+
       case 'text':
-        this.bgColor = 'transparent';
-        this.textColor = options.textColor || baseColor;
-        this.borderWidth = 0;
-        this.rippleColor = this.hexToRgba(baseColor, 0.2);
-        this.elevation = 0;
+        this.bgColor      = 'transparent';
+        this.textColor    = options.textColor || base;
+        this.borderWidth  = 0;
+        this.rippleColor  = hexToRgba(base, 0.2);
+        this.elevation    = 0;
         break;
-        
+
       case 'elevated':
-        this.bgColor = options.bgColor || '#FFFFFF';
-        this.textColor = options.textColor || baseColor;
-        this.borderWidth = 0;
-        this.rippleColor = this.hexToRgba(baseColor, 0.2);
-        this.elevation = options.elevation || 4;
+        this.bgColor      = options.bgColor || '#FFFFFF';
+        this.textColor    = options.textColor || base;
+        this.borderWidth  = 0;
+        this.rippleColor  = hexToRgba(base, 0.2);
+        this.elevation    = options.elevation || 4;
         break;
-        
+
       case 'tonal':
-        this.bgColor = this.hexToRgba(baseColor, 0.3);
-        this.textColor = options.textColor || baseColor;
-        this.borderWidth = 0;
-        this.rippleColor = this.hexToRgba(baseColor, 0.3);
-        this.elevation = 0;
+        this.bgColor      = hexToRgba(base, 0.3);
+        this.textColor    = options.textColor || base;
+        this.borderWidth  = 0;
+        this.rippleColor  = hexToRgba(base, 0.3);
+        this.elevation    = 0;
         break;
-		
-	  default :
-		this.bgColor = options.bgColor || '#FFFFFF';
-        this.textColor = options.textColor || baseColor;
-        this.borderWidth = 0;
-        this.rippleColor = this.hexToRgba(baseColor, 0.2);
-        this.elevation = options.elevation || 4;
-        break;
+
+      default:
+        this.bgColor      = options.bgColor || '#FFFFFF';
+        this.textColor    = options.textColor || base;
+        this.borderWidth  = 0;
+        this.rippleColor  = hexToRgba(base, 0.2);
+        this.elevation    = options.elevation || 4;
     }
   }
-  
-  /**
-   * Configure le style Cupertino (iOS)
-   * @private
-   */
-  setupCupertinoStyle(options) {
-    const baseColor = options.bgColor || '#007AFF';
-    
+
+  /** @private */
+  _setupCupertinoStyle(options) {
+    const base = options.bgColor || '#007AFF';
+
     switch (this.type) {
       case 'filled':
-        this.bgColor = baseColor;
-        this.textColor = options.textColor || '#FFFFFF';
+        this.bgColor     = base;
+        this.textColor   = options.textColor || '#FFFFFF';
         this.borderWidth = 0;
         break;
-        
+
       case 'gray':
-        this.bgColor = 'rgba(120, 120, 128, 0.16)';
-        this.textColor = options.textColor || baseColor;
+        this.bgColor     = 'rgba(120,120,128,0.16)';
+        this.textColor   = options.textColor || base;
         this.borderWidth = 0;
         break;
-        
+
       case 'tinted':
-        this.bgColor = this.hexToRgba(baseColor, 0.2);
-        this.textColor = options.textColor || baseColor;
+        this.bgColor     = hexToRgba(base, 0.2);
+        this.textColor   = options.textColor || base;
         this.borderWidth = 0;
         break;
-        
+
+      case 'bordered':
+        this.bgColor     = 'transparent';
+        this.textColor   = options.textColor || base;
+        this.borderColor = base;
+        this.borderWidth = 1;
+        break;
+
       case 'plain':
-        this.bgColor = 'transparent';
-        this.textColor = options.textColor || baseColor;
-        this.borderWidth = 0;
-        break;
-		
-	  default :
-		this.bgColor = 'transparent';
-        this.textColor = options.textColor || baseColor;
-        this.borderWidth = 0;
-        break;
-    }
-  }
-  
-  /**
-   * Retourne le rayon des coins selon la forme
-   * @returns {number} Rayon en pixels
-   * @private
-   */
-  getBorderRadius() {
-    switch (this.shape) {
-      case 'square':
-        return 0;
-      case 'rounded':
       default:
-        return this.platform === 'material' ? 4 : 10;
+        this.bgColor     = 'transparent';
+        this.textColor   = options.textColor || base;
+        this.borderWidth = 0;
     }
   }
-  
-  /**
-   * Gère la pression sur le bouton
-   * @param {number} x - Coordonnée X
-   * @param {number} y - Coordonnée Y
-   * @private
-   */
-  handlePress(x, y) {
+
+  // ─────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────
+
+  /** @private */
+  _getBorderRadius() {
+    if (this.shape === 'square') return 0;
+    if (this.shape === 'pill')   return this.height / 2;
+    // 'rounded' (défaut)
+    return this.platform === 'material' ? 4 : 10;
+  }
+
+  // ─────────────────────────────────────────
+  // INTERACTIONS
+  // ─────────────────────────────────────────
+
+  /** @private */
+  _handlePress(x, y) {
+    if (this.disabled) return;
+
     if (this.platform === 'material') {
-      const adjustedY = y - this.framework.scrollOffset;
+      const adjY = y - (this.framework.scrollOffset || 0);
       this.ripples.push({
         x: x - this.x,
-        y: adjustedY - this.y,
+        y: adjY - this.y,
         radius: 0,
         maxRadius: Math.max(this.width, this.height) * 1.5,
-        opacity: 1
+        opacity: 1,
       });
-      this.animateRipple();
+      this._animateRipple();
     }
   }
-  
-  /**
-   * Anime les effets ripple
-   * @private
-   */
-  animateRipple() {
+
+  /** @private */
+  _animateRipple() {
+    if (this._rafId) return; // déjà en cours
+
     const animate = () => {
-      for (let ripple of this.ripples) {
-        ripple.radius += ripple.maxRadius / 15;
-        ripple.opacity -= 0.05; // diminue progressivement
+      if (this._destroyed) { this._rafId = null; return; }
+
+      for (const r of this.ripples) {
+        r.radius += r.maxRadius / 15;
+        r.opacity -= 0.05;
       }
+      this.ripples = this.ripples.filter((r) => r.opacity > 0);
 
-      // Supprime les ripples complètement invisibles
-      this.ripples = this.ripples.filter(r => r.opacity > 0);
+      // Utilise markDirty plutôt que de redessiner tout le canvas
+      this.markDirty();
 
-      // Redessine le bouton après mise à jour (important!)
-      if (this.framework && this.framework.redraw) {
-        this.framework.redraw();
-      }
-
-      // Tant qu'il reste des ripples visibles, continue l'animation
       if (this.ripples.length > 0) {
-        requestAnimationFrame(animate);
+        this._rafId = requestAnimationFrame(animate);
+      } else {
+        this._rafId = null;
       }
     };
 
-    animate();
+    this._rafId = requestAnimationFrame(animate);
   }
 
-  /**
-   * Dessine le bouton
-   * @param {CanvasRenderingContext2D} ctx - Contexte de dessin
-   */
+  // ─────────────────────────────────────────
+  // DESSIN
+  // ─────────────────────────────────────────
+
   draw(ctx) {
     ctx.save();
-    
-    const radius = this.getBorderRadius();
-    
-    // Ombre Material (elevated/filled)
-    if (this.platform === 'material' && this.elevation > 0 && !this.pressed) {
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = this.elevation * 2;
+
+    const radius    = this._getBorderRadius();
+    const alpha     = this.disabled ? 0.38 : 1;
+    ctx.globalAlpha = alpha;
+
+    // Ombre Material (elevated / filled non pressé)
+    if (this.platform === 'material' && (this.elevation || 0) > 0 && !this.pressed) {
+      ctx.shadowColor   = 'rgba(0,0,0,0.3)';
+      ctx.shadowBlur    = this.elevation * 2;
       ctx.shadowOffsetY = this.elevation;
     }
-    
-    // Background
+
+    // Fond
     if (this.bgColor !== 'transparent') {
-      ctx.fillStyle = this.pressed ? this.darkenColor(this.bgColor) : this.bgColor;
+      ctx.fillStyle = this.pressed ? darkenColor(this.bgColor) : this.bgColor;
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.fill();
     }
-    
+
     // Réinitialiser l'ombre
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
+    ctx.shadowColor   = 'transparent';
+    ctx.shadowBlur    = 0;
     ctx.shadowOffsetY = 0;
-    
+
     // Bordure
-    if (this.borderWidth > 0) {
+    if ((this.borderWidth || 0) > 0) {
       ctx.strokeStyle = this.borderColor;
-      ctx.lineWidth = this.borderWidth;
+      ctx.lineWidth   = this.borderWidth;
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.stroke();
     }
-    
-    // Ripple effect (Material)
-    if (this.platform === 'material') {
+
+    // Ripple (Material)
+    if (this.platform === 'material' && this.ripples.length > 0) {
       ctx.save();
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.clip();
-      
-      for (let ripple of this.ripples) {
-        ctx.globalAlpha = ripple.opacity;
-        ctx.fillStyle = this.rippleColor;
+
+      for (const r of this.ripples) {
+        ctx.globalAlpha = r.opacity * alpha;
+        ctx.fillStyle   = this.rippleColor;
         ctx.beginPath();
-        ctx.arc(this.x + ripple.x, this.y + ripple.y, ripple.radius, 0, Math.PI * 2);
+        ctx.arc(this.x + r.x, this.y + r.y, r.radius, 0, Math.PI * 2);
         ctx.fill();
       }
-      
       ctx.restore();
     }
-    
-    // Effet pressed pour iOS (overlay sombre)
+
+    // Overlay pressé (iOS)
     if (this.platform === 'cupertino' && this.pressed && this.bgColor !== 'transparent') {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+      ctx.fillStyle = 'rgba(0,0,0,0.1)';
       ctx.beginPath();
-      this.roundRect(ctx, this.x, this.y, this.width, this.height, radius);
+      roundRect(ctx, this.x, this.y, this.width, this.height, radius);
       ctx.fill();
     }
-    
+
     // Texte
-    ctx.fillStyle = this.pressed && this.platform === 'cupertino' 
-      ? this.darkenColor(this.textColor) 
-      : this.textColor;
-    ctx.font = `${this.fontSize}px -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif`;
-    ctx.textAlign = 'center';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle =
+      this.pressed && this.platform === 'cupertino'
+        ? darkenColor(this.textColor)
+        : this.textColor;
+    ctx.font         = `${this.fontSize}px -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif`;
+    ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(this.text, this.x + this.width / 2, this.y + this.height / 2);
-    
+
     ctx.restore();
   }
 
-  /**
-   * Dessine un rectangle avec coins arrondis
-   * @private
-   */
-  roundRect(ctx, x, y, width, height, radius) {
-    if (radius === 0) {
-      ctx.rect(x, y, width, height);
-      return;
-    }
-    
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-  }
+  // ─────────────────────────────────────────
+  // HIT TEST
+  // ─────────────────────────────────────────
 
-  /**
-   * Assombrit une couleur
-   * @private
-   */
-  darkenColor(color) {
-    if (color === 'transparent') return 'rgba(0, 0, 0, 0.1)';
-    
-    if (color.startsWith('rgba') || color.startsWith('rgb')) {
-      return color.replace(/[\d.]+\)$/g, match => {
-        const val = parseFloat(match);
-        return `${Math.max(0, val - 0.1)})`;
-      });
-    }
-    
-    const rgb = this.hexToRgb(color);
-    return `rgb(${Math.max(0, rgb.r - 30)}, ${Math.max(0, rgb.g - 30)}, ${Math.max(0, rgb.b - 30)})`;
-  }
-
-  /**
-   * Convertit hex en RGB
-   * @private
-   */
-  hexToRgb(hex) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result ? {
-      r: parseInt(result[1], 16),
-      g: parseInt(result[2], 16),
-      b: parseInt(result[3], 16)
-    } : { r: 0, g: 0, b: 0 };
-  }
-
-  /**
-   * Convertit hex en RGBA avec alpha
-   * @private
-   */
-  hexToRgba(hex, alpha) {
-    const rgb = this.hexToRgb(hex);
-    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
-  }
-
-  /**
-   * Vérifie si un point est dans les limites
-   */
   isPointInside(x, y) {
-    return x >= this.x && 
-           x <= this.x + this.width && 
-           y >= this.y && 
-           y <= this.y + this.height;
+    if (this.disabled) return false;
+    return (
+      x >= this.x &&
+      x <= this.x + this.width &&
+      y >= this.y &&
+      y <= this.y + this.height
+    );
+  }
+
+  // ─────────────────────────────────────────
+  // DESTROY
+  // ─────────────────────────────────────────
+
+  destroy() {
+    if (this._rafId) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+    this.ripples = [];
+    super.destroy();
   }
 }
 
